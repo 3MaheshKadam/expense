@@ -1,0 +1,41 @@
+export type CategoryType = 'expense' | 'income' | 'savings' | 'friend';
+
+export interface Category {
+  id: string;
+  name: string;
+  type: CategoryType;
+  icon: string; // Lucide icon identifier
+  color: string; // CSS or Tailwind color
+  userId: string;
+}
+
+export interface Transaction {
+  id: string;
+  userId: string;
+  amount: number;
+  type: 'incoming' | 'outgoing';
+  categoryId: string;
+  notes?: string;
+  date: string; // ISO date string (YYYY-MM-DD)
+  friendName?: string;
+  createdAt: string; // string timestamp
+}
+
+export interface Debt {
+  id: string;
+  userId: string;
+  type: 'to_give' | 'to_receive';
+  personName: string;
+  amount: number;
+  notes?: string;
+  dueDate?: string; // ISO date string or empty
+  status: 'pending' | 'resolved';
+  createdAt: string; // string timestamp
+}
+
+export interface BudgetStatus {
+  totalIncome: number;
+  totalExpenses: number;
+  totalSavings: number;
+  netWorth: number;
+}

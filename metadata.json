@@ -1,0 +1,8 @@
+{
+  "name": "Expense and Debt Tracker",
+  "description": "An elegant, highly interactive dashboard for managing personal budgets, custom income/expense categories, savings targets, and friend loan balances, complete with beautiful monthly visual analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

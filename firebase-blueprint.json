@@ -1,0 +1,144 @@
+{
+  "entities": {
+    "Category": {
+      "title": "Category",
+      "description": "Custom or standard category for budgeting, expenses, or income.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the category."
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name of the category."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["expense", "income", "savings", "friend"],
+          "description": "The category classification."
+        },
+        "icon": {
+          "type": "string",
+          "description": "The name of the Lucide icon to display."
+        },
+        "color": {
+          "type": "string",
+          "description": "Hex or Tailwind color representation."
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner userId."
+        }
+      },
+      "required": ["id", "name", "type", "userId"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "A single financial event (income, expense, savings allocation, or friend payment).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the transaction."
+        },
+        "userId": {
+          "type": "string",
+          "description": "User who owns the transaction."
+        },
+        "amount": {
+          "type": "number",
+          "description": "The financial amount of the transaction."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["incoming", "outgoing"],
+          "description": "Flow of money."
+        },
+        "categoryId": {
+          "type": "string",
+          "description": "The ID of the category this transaction belongs to."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Additional text details or remarks."
+        },
+        "date": {
+          "type": "string",
+          "description": "ISO-8601 formatted date of the transaction."
+        },
+        "friendName": {
+          "type": "string",
+          "description": "Optional name of the friend involved in this transaction."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Database insertion timestamp."
+        }
+      },
+      "required": ["id", "userId", "amount", "type", "categoryId", "date", "createdAt"]
+    },
+    "Debt": {
+      "title": "Debt",
+      "description": "Credits or debts representing whom you owe money to or who owes you.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the debt item."
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner of the record."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["to_give", "to_receive"],
+          "description": "Whether you have to give money (debt) or receive (credit)."
+        },
+        "personName": {
+          "type": "string",
+          "description": "Name of the individual/friend."
+        },
+        "amount": {
+          "type": "number",
+          "description": "Sum of money."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Details about why the debt exists."
+        },
+        "dueDate": {
+          "type": "string",
+          "description": "ISO date representing target payment date."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "resolved"],
+          "description": "Current state of the debt settlement."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Database insertion timestamp."
+        }
+      },
+      "required": ["id", "userId", "type", "personName", "amount", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Collection of categories created by or assigned to users."
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "User transactions for income, expense and savings."
+    },
+    "/debts/{debtId}": {
+      "schema": "Debt",
+      "description": "Records for receivables and payables between friends/contacts."
+    }
+  }
+}

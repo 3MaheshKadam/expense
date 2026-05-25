@@ -1,0 +1,119 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net (Pillar 8 default-deny catch-all)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Common cryptographic and authorization primitives (Pillar 3)
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Schema and boundary controls (Pillar 2 & 5)
+    function isValidCategory(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 50
+        && data.type is string && (data.type == 'expense' || data.type == 'income' || data.type == 'savings' || data.type == 'friend')
+        && (data.icon == null || (data.icon is string && data.icon.size() <= 100))
+        && (data.color == null || (data.color is string && data.color.size() <= 50))
+        && data.userId == request.auth.uid;
+    }
+
+    function isValidTransaction(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.userId == request.auth.uid
+        && data.amount is number && data.amount >= 0
+        && data.type is string && (data.type == 'incoming' || data.type == 'outgoing')
+        && data.categoryId is string && data.categoryId.size() <= 128
+        && (data.notes == null || (data.notes is string && data.notes.size() <= 500))
+        && data.date is string && data.date.size() <= 50
+        && (data.friendName == null || (data.friendName is string && data.friendName.size() <= 100));
+    }
+
+    function isValidDebt(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.userId == request.auth.uid
+        && data.type is string && (data.type == 'to_give' || data.type == 'to_receive')
+        && data.personName is string && data.personName.size() > 0 && data.personName.size() <= 100
+        && data.amount is number && data.amount >= 0
+        && (data.notes == null || (data.notes is string && data.notes.size() <= 500))
+        && (data.dueDate == null || (data.dueDate is string && data.dueDate.size() <= 50))
+        && data.status is string && (data.status == 'pending' || data.status == 'resolved');
+    }
+
+    // Collection Security (Pillar 6, 8, & 12)
+    match /categories/{categoryId} {
+      allow create: if isSignedIn()
+        && isValidId(categoryId)
+        && request.resource.data.id == categoryId
+        && isValidCategory(request.resource.data);
+
+      allow update: if isSignedIn()
+        && isValidId(categoryId)
+        && isValidCategory(request.resource.data)
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.id == resource.data.id
+        && (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'icon', 'color'])
+        );
+
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    match /transactions/{transactionId} {
+      allow create: if isSignedIn()
+        && isValidId(transactionId)
+        && request.resource.data.id == transactionId
+        && isValidTransaction(request.resource.data)
+        && request.resource.data.createdAt == request.time; // Temporal Integrity (Pillar 13)
+
+      allow update: if isSignedIn()
+        && isValidId(transactionId)
+        && isValidTransaction(request.resource.data)
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.createdAt == resource.data.createdAt // Original timestamp is immortal
+        && (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['amount', 'type', 'categoryId', 'notes', 'date', 'friendName'])
+        );
+
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    match /debts/{debtId} {
+      allow create: if isSignedIn()
+        && isValidId(debtId)
+        && request.resource.data.id == debtId
+        && isValidDebt(request.resource.data)
+        && request.resource.data.createdAt == request.time; // Temporal Integrity
+
+      allow update: if isSignedIn()
+        && isValidId(debtId)
+        && isValidDebt(request.resource.data)
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.createdAt == resource.data.createdAt // Original timestamp is immortal
+        && (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['amount', 'status', 'notes', 'dueDate', 'personName'])
+        );
+
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+  }
+}
