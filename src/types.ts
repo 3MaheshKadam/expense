@@ -34,6 +34,8 @@ export interface Debt {
   createdAt: string; // string timestamp
 }
 
+export type Period = { type: 'month'; year: number; month: number } | { type: 'all' };
+
 export interface BudgetStatus {
   totalIncome: number;
   totalExpenses: number;

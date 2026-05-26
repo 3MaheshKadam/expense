@@ -34,7 +34,7 @@ import {
 } from 'firebase/firestore';
 import { signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
 import { db, auth, isPlaceholderConfig, handleFirestoreError, OperationType } from './firebase';
-import { Category, Transaction, Debt, CategoryType, Investment } from './types';
+import { Category, Transaction, Debt, CategoryType, Investment, Period } from './types';
 import { INITIAL_CATEGORIES, INITIAL_TRANSACTIONS, INITIAL_DEBTS } from './mockData';
 import MetricCards from './components/MetricCards';
 import CategoryManager from './components/CategoryManager';
@@ -53,6 +53,12 @@ export default function App() {
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+
+  // Period filter (shared across MetricCards + AnalyticsPanel)
+  const [selectedPeriod, setSelectedPeriod] = useState<Period>(() => {
+    const now = new Date();
+    return { type: 'month', year: now.getFullYear(), month: now.getMonth() + 1 };
+  });
 
   // Local/Firestore States
   const [categories, setCategories] = useState<Category[]>([]);
@@ -588,6 +594,13 @@ export default function App() {
     }
   };
 
+  // Period-filtered transactions (for AnalyticsPanel + MetricCards Cards 2 & 3)
+  const periodTransactions = useMemo(() => {
+    if (selectedPeriod.type === 'all') return transactions;
+    const prefix = `${selectedPeriod.year}-${String(selectedPeriod.month).padStart(2, '0')}`;
+    return transactions.filter(t => t.date.startsWith(prefix));
+  }, [transactions, selectedPeriod]);
+
   // Recent transactions helper for Quick view on front panel
   const recentTransactions = useMemo(() => {
     return [...transactions]
@@ -855,6 +868,7 @@ export default function App() {
           {/* METRICS TOP BOARD */}
           <MetricCards
             transactions={transactions}
+            periodTransactions={periodTransactions}
             debts={debts}
             categories={categories}
             isDarkMode={isDarkMode}
@@ -863,6 +877,8 @@ export default function App() {
             cashBalance={cashBalance}
             onSetCashBalance={handleSetCashBalance}
             compact={activeTab !== 'dashboard'}
+            selectedPeriod={selectedPeriod}
+            onPeriodChange={setSelectedPeriod}
           />
 
           {/* INTERACTIVE COMPONENT SWITCH DESKTOP-CENTRIC */}
@@ -870,7 +886,7 @@ export default function App() {
             {activeTab === 'dashboard' && (
               <div className="space-y-8" id="viewport-dashboard">
                 {/* Analytics report */}
-                <AnalyticsPanel categories={categories} transactions={transactions} debts={debts} />
+                <AnalyticsPanel categories={categories} transactions={periodTransactions} debts={debts} />
                 
                 {/* Recent actions grid below */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8" id="dashboard-recent-actions">

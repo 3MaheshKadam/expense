@@ -13,11 +13,17 @@ import {
   PiggyBank,
   Eye,
   EyeOff,
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
 } from 'lucide-react';
-import { Transaction, Debt, Category } from '../types';
+import { Transaction, Debt, Category, Period } from '../types';
+
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 interface MetricCardsProps {
-  transactions: Transaction[];
+  transactions: Transaction[];       // all-time (for Card 1 balance)
+  periodTransactions: Transaction[]; // period-filtered (for Cards 2 & 3)
   debts: Debt[];
   categories: Category[];
   isDarkMode?: boolean;
@@ -26,9 +32,11 @@ interface MetricCardsProps {
   cashBalance: number;
   onSetCashBalance: (amount: number) => void;
   compact?: boolean;
+  selectedPeriod: Period;
+  onPeriodChange: (p: Period) => void;
 }
 
-export default function MetricCards({ transactions, debts, categories, isDarkMode, walletBalance, onSetWalletBalance, cashBalance, onSetCashBalance, compact = false }: MetricCardsProps) {
+export default function MetricCards({ transactions, periodTransactions, debts, categories, isDarkMode, walletBalance, onSetWalletBalance, cashBalance, onSetCashBalance, compact = false, selectedPeriod, onPeriodChange }: MetricCardsProps) {
   const [editMode, setEditMode] = useState<'none' | 'wallet' | 'cash'>('none');
   const [editValue, setEditValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -42,66 +50,83 @@ export default function MetricCards({ transactions, debts, categories, isDarkMod
     });
   };
 
-  const stats = useMemo(() => {
-    const savingsCatIds = new Set(
-      categories.filter(c => c.type === 'savings').map(c => c.id)
-    );
+  // Period navigation helpers
+  const now = new Date();
+  const isCurrentMonth = selectedPeriod.type === 'month' &&
+    selectedPeriod.year === now.getFullYear() &&
+    selectedPeriod.month === now.getMonth() + 1;
 
-    let income = 0;
-    let expense = 0;
-    let savings = 0;
+  const goPrev = () => {
+    if (selectedPeriod.type !== 'month') return;
+    const d = new Date(selectedPeriod.year, selectedPeriod.month - 2, 1);
+    onPeriodChange({ type: 'month', year: d.getFullYear(), month: d.getMonth() + 1 });
+  };
 
+  const goNext = () => {
+    if (selectedPeriod.type !== 'month' || isCurrentMonth) return;
+    const d = new Date(selectedPeriod.year, selectedPeriod.month, 1);
+    onPeriodChange({ type: 'month', year: d.getFullYear(), month: d.getMonth() + 1 });
+  };
+
+  const periodLabel = selectedPeriod.type === 'all'
+    ? 'All Time'
+    : `${MONTH_NAMES[selectedPeriod.month - 1]} ${selectedPeriod.year}`;
+
+  // All-time stats → Card 1 (Available Balance) & Card 4 (Debts)
+  const allTimeStats = useMemo(() => {
+    const savingsCatIds = new Set(categories.filter(c => c.type === 'savings').map(c => c.id));
+    let income = 0, expense = 0, savings = 0, cashIncome = 0, cashExpense = 0;
     transactions.forEach(t => {
+      const isCash = (t.paymentMethod ?? 'online') === 'cash';
       if (t.type === 'incoming') {
         income += t.amount;
+        isCash ? (cashIncome += t.amount) : 0;
+      } else if (savingsCatIds.has(t.categoryId)) {
+        savings += t.amount;
+        isCash ? (cashExpense += t.amount) : 0;
+      } else {
+        expense += t.amount;
+        isCash ? (cashExpense += t.amount) : 0;
+      }
+    });
+    const pendingToGive = debts.filter(d => d.status === 'pending' && d.type === 'to_give').reduce((s, d) => s + d.amount, 0);
+    const pendingToReceive = debts.filter(d => d.status === 'pending' && d.type === 'to_receive').reduce((s, d) => s + d.amount, 0);
+    const cashInHand = cashBalance + cashIncome - cashExpense;
+    const availableBalance = walletBalance + income - expense - savings;
+    const projectedBalance = availableBalance + pendingToReceive - pendingToGive;
+    return { availableBalance, projectedBalance, cashInHand, pendingToGive, pendingToReceive };
+  }, [transactions, debts, categories, walletBalance, cashBalance]);
+
+  // Period stats → Card 2 (Inflow) & Card 3 (Expenses/Savings)
+  const periodStats = useMemo(() => {
+    const savingsCatIds = new Set(categories.filter(c => c.type === 'savings').map(c => c.id));
+    let income = 0, expense = 0, savings = 0, cashIncome = 0, cashExpense = 0;
+    periodTransactions.forEach(t => {
+      const isCash = (t.paymentMethod ?? 'online') === 'cash';
+      if (t.type === 'incoming') {
+        income += t.amount;
+        isCash ? (cashIncome += t.amount) : 0;
       } else if (savingsCatIds.has(t.categoryId)) {
         savings += t.amount;
       } else {
         expense += t.amount;
+        isCash ? (cashExpense += t.amount) : 0;
       }
     });
+    return { income, expense, savings, cashIncome, cashExpense };
+  }, [periodTransactions, categories]);
 
-    const pendingToGive = debts
-      .filter(d => d.status === 'pending' && d.type === 'to_give')
-      .reduce((sum, d) => sum + d.amount, 0);
-
-    const pendingToReceive = debts
-      .filter(d => d.status === 'pending' && d.type === 'to_receive')
-      .reduce((sum, d) => sum + d.amount, 0);
-
-    let cashIncome = 0;
-    let cashExpense = 0;
-    let onlineIncome = 0;
-    let onlineExpense = 0;
-    transactions.forEach(t => {
-      const isCash = (t.paymentMethod ?? 'online') === 'cash';
-      if (t.type === 'incoming') {
-        isCash ? (cashIncome += t.amount) : (onlineIncome += t.amount);
-      } else {
-        isCash ? (cashExpense += t.amount) : (onlineExpense += t.amount);
-      }
+  // Category breakdown for the strip below cards
+  const categoryBreakdown = useMemo(() => {
+    const totals: Record<string, { name: string; color: string; amount: number }> = {};
+    periodTransactions.filter(t => t.type === 'outgoing').forEach(t => {
+      const cat = categories.find(c => c.id === t.categoryId);
+      if (!cat) return;
+      if (!totals[cat.id]) totals[cat.id] = { name: cat.name, color: cat.color, amount: 0 };
+      totals[cat.id].amount += t.amount;
     });
-
-    const cashInHand = cashBalance + cashIncome - cashExpense;
-    // savings outflows reduce available spending money but are tracked separately from expenses
-    const availableBalance = walletBalance + income - expense - savings;
-    const projectedBalance = availableBalance + pendingToReceive - pendingToGive;
-
-    return {
-      income,
-      expense,
-      savings,
-      pendingToGive,
-      pendingToReceive,
-      cashIncome,
-      cashExpense,
-      cashInHand,
-      onlineIncome,
-      onlineExpense,
-      availableBalance,
-      projectedBalance,
-    };
-  }, [transactions, debts, categories, walletBalance, cashBalance]);
+    return Object.values(totals).sort((a, b) => b.amount - a.amount);
+  }, [periodTransactions, categories]);
 
   const startEdit = (mode: 'wallet' | 'cash') => {
     const current = mode === 'wallet' ? walletBalance : cashBalance;
@@ -128,9 +153,51 @@ export default function MetricCards({ transactions, debts, categories, isDarkMod
 
   const fmt = (n: number) => Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  const isAvailableNeg = stats.availableBalance < 0;
-  const isProjectedNeg = stats.projectedBalance < 0;
-  const hasPendingDebts = stats.pendingToGive > 0 || stats.pendingToReceive > 0;
+  const isAvailableNeg = allTimeStats.availableBalance < 0;
+  const isProjectedNeg = allTimeStats.projectedBalance < 0;
+  const hasPendingDebts = allTimeStats.pendingToGive > 0 || allTimeStats.pendingToReceive > 0;
+
+  // Shared period selector bar
+  const PeriodSelector = ({ small = false }: { small?: boolean }) => (
+    <div className={`flex items-center justify-between ${small ? 'mb-3' : 'mb-5'}`}>
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={goPrev}
+          disabled={selectedPeriod.type === 'all'}
+          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 transition"
+        >
+          <ChevronLeft size={small ? 13 : 15} />
+        </button>
+        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-white/60 dark:bg-slate-900/50 rounded-xl border border-white/70 dark:border-slate-800/50">
+          <CalendarDays size={small ? 11 : 13} className="text-indigo-500" />
+          <span className={`font-bold text-slate-700 dark:text-slate-200 ${small ? 'text-[10px]' : 'text-xs'}`}>{periodLabel}</span>
+        </div>
+        <button
+          type="button"
+          onClick={goNext}
+          disabled={selectedPeriod.type === 'all' || isCurrentMonth}
+          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 transition"
+        >
+          <ChevronRight size={small ? 13 : 15} />
+        </button>
+      </div>
+      <button
+        type="button"
+        onClick={() => selectedPeriod.type === 'all'
+          ? onPeriodChange({ type: 'month', year: now.getFullYear(), month: now.getMonth() + 1 })
+          : onPeriodChange({ type: 'all' })
+        }
+        className={`${small ? 'text-[10px] px-2 py-0.5' : 'text-[11px] px-3 py-1'} rounded-xl font-bold border transition ${
+          selectedPeriod.type === 'all'
+            ? 'bg-indigo-600 text-white border-indigo-600'
+            : 'bg-white/60 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 border-white/70 dark:border-slate-800/50 hover:border-indigo-400 hover:text-indigo-600'
+        }`}
+      >
+        All Time
+      </button>
+    </div>
+  );
 
   // ── Compact strip for non-dashboard tabs ──────────────────────────────────
   if (compact) {
@@ -138,7 +205,7 @@ export default function MetricCards({ transactions, debts, categories, isDarkMod
       {
         id: 'balance',
         label: 'Available Balance',
-        value: stats.availableBalance,
+        value: allTimeStats.availableBalance,
         signed: true,
         negative: isAvailableNeg,
         Icon: Wallet,
@@ -148,7 +215,7 @@ export default function MetricCards({ transactions, debts, categories, isDarkMod
       {
         id: 'income',
         label: 'Total Inflow',
-        value: stats.income,
+        value: periodStats.income,
         signed: false,
         negative: false,
         Icon: ArrowUpRight,
@@ -158,7 +225,7 @@ export default function MetricCards({ transactions, debts, categories, isDarkMod
       {
         id: 'expense',
         label: 'Expenses & Savings',
-        value: stats.expense + stats.savings,
+        value: periodStats.expense + periodStats.savings,
         signed: false,
         negative: false,
         Icon: ArrowDownLeft,
@@ -168,9 +235,9 @@ export default function MetricCards({ transactions, debts, categories, isDarkMod
       {
         id: 'debts',
         label: 'Friend Balances',
-        value: stats.pendingToReceive - stats.pendingToGive,
+        value: allTimeStats.pendingToReceive - allTimeStats.pendingToGive,
         signed: true,
-        negative: (stats.pendingToReceive - stats.pendingToGive) < 0,
+        negative: (allTimeStats.pendingToReceive - allTimeStats.pendingToGive) < 0,
         Icon: ArrowRightLeft,
         accent: 'text-purple-600 dark:text-purple-400',
         bg: 'bg-purple-500/10',
@@ -178,7 +245,9 @@ export default function MetricCards({ transactions, debts, categories, isDarkMod
     ];
 
     return (
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" id="dashboard-metric-cards-compact">
+      <div className="mb-6" id="dashboard-metric-cards-compact">
+      <PeriodSelector small />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {compactCards.map(({ id, label, value, signed, negative, Icon, accent, bg }) => {
           const hidden = hiddenCards.has(id);
           const displayValue = signed
@@ -214,6 +283,7 @@ export default function MetricCards({ transactions, debts, categories, isDarkMod
           );
         })}
       </div>
+      </div>
     );
   }
   // ─────────────────────────────────────────────────────────────────────────
@@ -221,7 +291,9 @@ export default function MetricCards({ transactions, debts, categories, isDarkMod
   const mask = '₹ ••••••';
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8" id="dashboard-metric-cards">
+    <div className="mb-8" id="dashboard-metric-cards">
+      <PeriodSelector />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
 
       {/* Card 1 — Wallet / Available Balance */}
       {(() => {
@@ -243,7 +315,7 @@ export default function MetricCards({ transactions, debts, categories, isDarkMod
                   className="text-xl font-extrabold font-sans mt-2.5 tracking-tight"
                   style={{ color: !hidden && isAvailableNeg ? '#ef4444' : (isDarkMode ? '#ffffff' : '#0f172a') }}
                 >
-                  {hidden ? mask : `${isAvailableNeg ? '-' : ''}₹${fmt(stats.availableBalance)}`}
+                  {hidden ? mask : `${isAvailableNeg ? '-' : ''}₹${fmt(allTimeStats.availableBalance)}`}
                 </h3>
 
                 {editMode !== 'none' && !hidden ? (
@@ -298,13 +370,13 @@ export default function MetricCards({ transactions, debts, categories, isDarkMod
                 title="Click to set your cash in hand"
               >
                 <Banknote size={13} />
-                <span>Cash: {hidden ? '••••' : `₹${fmt(stats.cashInHand)}`}</span>
+                <span>Cash: {hidden ? '••••' : `₹${fmt(allTimeStats.cashInHand)}`}</span>
                 {!hidden && <Pencil size={9} className="opacity-50 group-hover:opacity-100" />}
               </button>
               <span className="text-slate-300 dark:text-slate-700 text-xs">|</span>
               <span className="flex items-center gap-1.5 text-[11px] font-semibold text-indigo-500 dark:text-indigo-400">
                 <CreditCard size={13} />
-                Online: {hidden ? '••••' : `₹${fmt(stats.availableBalance - stats.cashInHand)}`}
+                Online: {hidden ? '••••' : `₹${fmt(allTimeStats.availableBalance - allTimeStats.cashInHand)}`}
               </span>
             </div>
 
@@ -313,7 +385,7 @@ export default function MetricCards({ transactions, debts, categories, isDarkMod
                 <AlertCircle size={11} className="text-amber-500 flex-shrink-0" />
                 Projected after debts:&nbsp;
                 <span className={`font-bold ${!hidden && isProjectedNeg ? 'text-red-500' : 'text-indigo-600 dark:text-indigo-400'}`}>
-                  {hidden ? '••••' : `${isProjectedNeg ? '-' : '+'}₹${fmt(stats.projectedBalance)}`}
+                  {hidden ? '••••' : `${isProjectedNeg ? '-' : '+'}₹${fmt(allTimeStats.projectedBalance)}`}
                 </span>
               </div>
             )}
@@ -337,7 +409,7 @@ export default function MetricCards({ transactions, debts, categories, isDarkMod
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Total Monthly Inflow</p>
                 <h3 className="text-xl font-extrabold font-sans mt-2.5 tracking-tight" style={{ color: isDarkMode ? '#ffffff' : '#0f172a' }}>
-                  {hidden ? mask : `₹${fmt(stats.income)}`}
+                  {hidden ? mask : `₹${fmt(periodStats.income)}`}
                 </h3>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
@@ -372,7 +444,7 @@ export default function MetricCards({ transactions, debts, categories, isDarkMod
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Expenses & Savings</p>
                 <h3 className="text-xl font-extrabold font-sans mt-2.5 tracking-tight" style={{ color: isDarkMode ? '#ffffff' : '#0f172a' }}>
-                  {hidden ? mask : `₹${fmt(stats.expense + stats.savings)}`}
+                  {hidden ? mask : `₹${fmt(periodStats.expense + periodStats.savings)}`}
                 </h3>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
@@ -388,12 +460,12 @@ export default function MetricCards({ transactions, debts, categories, isDarkMod
             <div className="mt-4 pt-3.5 border-t border-white/50 dark:border-slate-800/50 flex items-center justify-between gap-3 relative z-10">
               <span className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-600 dark:text-amber-400">
                 <ArrowDownLeft size={13} />
-                Spent: {hidden ? '••••' : `₹${fmt(stats.expense)}`}
+                Spent: {hidden ? '••••' : `₹${fmt(periodStats.expense)}`}
               </span>
               <span className="text-slate-300 dark:text-slate-700 text-xs">|</span>
               <span className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
                 <PiggyBank size={13} />
-                Saved: {hidden ? '••••' : `₹${fmt(stats.savings)}`}
+                Saved: {hidden ? '••••' : `₹${fmt(periodStats.savings)}`}
               </span>
             </div>
           </div>
@@ -403,7 +475,7 @@ export default function MetricCards({ transactions, debts, categories, isDarkMod
       {/* Card 4 — Friend Balances */}
       {(() => {
         const hidden = hiddenCards.has('debts');
-        const netDebt = stats.pendingToReceive - stats.pendingToGive;
+        const netDebt = allTimeStats.pendingToReceive - allTimeStats.pendingToGive;
         const netNeg = netDebt < 0;
         return (
           <div
@@ -435,7 +507,7 @@ export default function MetricCards({ transactions, debts, categories, isDarkMod
             </div>
             <div className="mt-5 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-medium relative z-10">
               <span>
-                Friend owes: {hidden ? '••••' : `₹${fmt(stats.pendingToReceive)}`} / You owe: {hidden ? '••••' : `₹${fmt(stats.pendingToGive)}`}
+                Friend owes: {hidden ? '••••' : `₹${fmt(allTimeStats.pendingToReceive)}`} / You owe: {hidden ? '••••' : `₹${fmt(allTimeStats.pendingToGive)}`}
               </span>
               {hasPendingDebts && (
                 <span className="flex items-center gap-1 font-bold text-purple-600 dark:text-purple-400">
@@ -448,6 +520,28 @@ export default function MetricCards({ transactions, debts, categories, isDarkMod
         );
       })()}
 
+      </div>
+
+      {/* Category breakdown strip */}
+      {categoryBreakdown.length > 0 && (
+        <div className="mt-4 glass-panel rounded-2xl px-5 py-4 border border-white/60 dark:border-slate-800/30">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-3">
+            {periodLabel} · Spending by Category
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {categoryBreakdown.map(cat => (
+              <div
+                key={cat.name}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white/70 dark:bg-slate-900/50 rounded-xl border border-white/80 dark:border-slate-800/40 shadow-sm"
+              >
+                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
+                <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">{cat.name}</span>
+                <span className="text-[11px] font-bold text-slate-800 dark:text-white">₹{fmt(cat.amount)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
