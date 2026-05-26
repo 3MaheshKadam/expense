@@ -32,6 +32,7 @@ export interface Debt {
   dueDate?: string; // ISO date string or empty
   status: 'pending' | 'resolved';
   createdAt: string; // string timestamp
+  resolvedAt?: string; // set when debt is settled — used for month-based reporting
 }
 
 export type Period = { type: 'month'; year: number; month: number } | { type: 'all' };

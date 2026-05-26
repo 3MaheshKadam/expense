@@ -46,7 +46,8 @@ service cloud.firestore {
         && data.amount is number && data.amount >= 0
         && (data.notes == null || (data.notes is string && data.notes.size() <= 500))
         && (data.dueDate == null || (data.dueDate is string && data.dueDate.size() <= 50))
-        && data.status is string && (data.status == 'pending' || data.status == 'resolved');
+        && data.status is string && (data.status == 'pending' || data.status == 'resolved')
+        && (!('resolvedAt' in data) || (data.resolvedAt is string && data.resolvedAt.size() <= 50));
     }
 
     // Collection Security (Pillar 6, 8, & 12)
@@ -143,7 +144,7 @@ service cloud.firestore {
         && request.resource.data.id == resource.data.id
         && request.resource.data.createdAt == resource.data.createdAt // Original timestamp is immortal
         && (
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['amount', 'status', 'notes', 'dueDate', 'personName'])
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['amount', 'status', 'notes', 'dueDate', 'personName', 'resolvedAt'])
         );
 
       allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;

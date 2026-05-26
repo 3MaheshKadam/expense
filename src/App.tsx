@@ -42,10 +42,11 @@ import TransactionForm from './components/TransactionForm';
 import DebtTracker from './components/DebtTracker';
 import InvestmentTracker from './components/InvestmentTracker';
 import AnalyticsPanel from './components/AnalyticsPanel';
+import MonthlySummary from './components/MonthlySummary';
 import ThemeToggle from './components/ThemeToggle';
 import DynamicIcon from './components/DynamicIcon';
 
-type ActiveTab = 'dashboard' | 'ledger' | 'debts' | 'categories' | 'investments';
+type ActiveTab = 'dashboard' | 'ledger' | 'debts' | 'categories' | 'investments' | 'monthly';
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
@@ -500,13 +501,15 @@ export default function App() {
     const target = debts.find(d => d.id === id);
     if (!target) return;
 
+    const resolvedAt = new Date().toISOString();
+
     if (isDemoMode) {
-      const revised = debts.map(d => d.id === id ? { ...d, status: 'resolved' as const } : d);
+      const revised = debts.map(d => d.id === id ? { ...d, status: 'resolved' as const, resolvedAt } : d);
       setDebts(revised);
       saveLocalData(`etc_debts_${currentUserId}`, revised);
     } else {
       try {
-        await updateDoc(doc(db, 'debts', id), { status: 'resolved' });
+        await updateDoc(doc(db, 'debts', id), { status: 'resolved', resolvedAt });
       } catch (err) {
         handleFirestoreError(err, OperationType.UPDATE, `debts/${id}`);
       }
@@ -899,6 +902,20 @@ export default function App() {
               <TrendingUp size={14} />
               Investments
             </button>
+
+            <button
+              onClick={() => setActiveTab('monthly')}
+              id="nav-tab-monthly"
+              type="button"
+              className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+                activeTab === 'monthly'
+                  ? 'bg-indigo-600 dark:bg-indigo-500 text-white shadow-xl shadow-indigo-500/10'
+                  : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-white/40 dark:hover:bg-slate-900/30'
+              }`}
+            >
+              <FileText size={14} />
+              Monthly Report
+            </button>
           </div>
 
           {/* METRICS TOP BOARD — always visible on desktop; mobile shows only on dashboard */}
@@ -1025,6 +1042,14 @@ export default function App() {
                 onDeleteInvestment={handleDeleteInvestment}
               />
             )}
+
+            {activeTab === 'monthly' && (
+              <MonthlySummary
+                categories={categories}
+                transactions={transactions}
+                debts={debts}
+              />
+            )}
           </div>
         </main>
 
@@ -1036,11 +1061,11 @@ export default function App() {
         {/* MOBILE BOTTOM NAV BAR — floating pill with sliding indicator */}
         {(() => {
           const bottomTabs: { tab: ActiveTab; icon: any; label: string }[] = [
-            { tab: 'dashboard',   icon: LayoutDashboard, label: 'Home'   },
-            { tab: 'ledger',      icon: ReceiptText,      label: 'Ledger' },
-            { tab: 'debts',       icon: ArrowRightLeft,   label: 'Debts'  },
-            { tab: 'investments', icon: TrendingUp,       label: 'Invest' },
-            { tab: 'categories',  icon: FolderKanban,     label: 'More'   },
+            { tab: 'dashboard',   icon: LayoutDashboard, label: 'Home'    },
+            { tab: 'ledger',      icon: ReceiptText,      label: 'Ledger'  },
+            { tab: 'debts',       icon: ArrowRightLeft,   label: 'Debts'   },
+            { tab: 'investments', icon: TrendingUp,       label: 'Invest'  },
+            { tab: 'monthly',     icon: FileText,         label: 'Report'  },
           ];
           const activeIndex = bottomTabs.findIndex(t => t.tab === activeTab);
           return (
