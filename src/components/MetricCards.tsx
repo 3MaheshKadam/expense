@@ -93,7 +93,8 @@ export default function MetricCards({ transactions, periodTransactions, debts, c
     const pendingToReceive = debts.filter(d => d.status === 'pending' && d.type === 'to_receive').reduce((s, d) => s + d.amount, 0);
     const cashInHand = cashBalance + cashIncome - cashExpense;
     const availableBalance = walletBalance + cashBalance + income - expense - savings;
-    const projectedBalance = availableBalance + pendingToReceive - pendingToGive;
+    const onlineBalance = availableBalance - cashInHand;
+    const projectedBalance = onlineBalance + pendingToReceive - pendingToGive;
     return { availableBalance, projectedBalance, cashInHand, pendingToGive, pendingToReceive };
   }, [transactions, debts, categories, walletBalance, cashBalance]);
 
