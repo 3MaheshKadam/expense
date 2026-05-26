@@ -347,19 +347,14 @@ export default function App() {
 
   const handleDeleteCategory = async (id: string) => {
     const currentUserId = user ? user.uid : 'local-demo-user';
-    
-    // First remove associated transactions to avoid orphans
+
     if (isDemoMode) {
       const revisedCats = categories.filter(c => c.id !== id);
-      const revisedTxs = transactions.filter(t => t.categoryId !== id);
       setCategories(revisedCats);
-      setTransactions(revisedTxs);
       saveLocalData(`etc_cats_${currentUserId}`, revisedCats);
-      saveLocalData(`etc_txs_${currentUserId}`, revisedTxs);
     } else {
       try {
         await deleteDoc(doc(db, 'categories', id));
-        // Client filters or delete triggers will remove matching online items
       } catch (err) {
         handleFirestoreError(err, OperationType.DELETE, `categories/${id}`);
       }
@@ -418,6 +413,47 @@ export default function App() {
         await deleteDoc(doc(db, 'transactions', id));
       } catch (err) {
         handleFirestoreError(err, OperationType.DELETE, `transactions/${id}`);
+      }
+    }
+  };
+
+  const handleEditTransaction = async (
+    id: string,
+    amount: number,
+    type: 'incoming' | 'outgoing',
+    categoryId: string,
+    notes: string,
+    date: string,
+    friendName?: string,
+    paymentMethod: 'cash' | 'online' = 'online'
+  ) => {
+    const currentUserId = user ? user.uid : 'local-demo-user';
+    const existing = transactions.find(t => t.id === id);
+    if (!existing) return;
+
+    const updated: any = {
+      ...existing,
+      amount,
+      type,
+      categoryId,
+      notes: notes || '',
+      date,
+      paymentMethod,
+      friendName: friendName || '',
+    };
+    if (!updated.friendName) delete updated.friendName;
+    if (!updated.notes) delete updated.notes;
+
+    if (isDemoMode) {
+      const revised = transactions.map(t => t.id === id ? updated : t);
+      setTransactions(revised);
+      saveLocalData(`etc_txs_${currentUserId}`, revised);
+    } else {
+      try {
+        const { createdAt, ...rest } = updated;
+        await setDoc(doc(db, 'transactions', id), { ...rest, createdAt: existing.createdAt });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, `transactions/${id}`);
       }
     }
   };
@@ -953,11 +989,12 @@ export default function App() {
             )}
 
             {activeTab === 'ledger' && (
-              <TransactionForm 
-                categories={categories} 
-                transactions={transactions} 
-                onCreateTransaction={handleCreateTransaction} 
-                onDeleteTransaction={handleDeleteTransaction} 
+              <TransactionForm
+                categories={categories}
+                transactions={transactions}
+                onCreateTransaction={handleCreateTransaction}
+                onEditTransaction={handleEditTransaction}
+                onDeleteTransaction={handleDeleteTransaction}
               />
             )}
 

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, Trash2, Search, ArrowUpRight, ArrowDownLeft, Calendar, HelpCircle, DollarSign, Filter, Users, Banknote, CreditCard } from 'lucide-react';
+import { Plus, Trash2, Pencil, X, Search, ArrowUpRight, ArrowDownLeft, Calendar, HelpCircle, DollarSign, Filter, Users, Banknote, CreditCard } from 'lucide-react';
 import { Category, Transaction } from '../types';
 import DynamicIcon from './DynamicIcon';
 
@@ -8,10 +8,12 @@ interface TransactionFormProps {
   categories: Category[];
   transactions: Transaction[];
   onCreateTransaction: (amount: number, type: 'incoming' | 'outgoing', categoryId: string, notes: string, date: string, friendName?: string, paymentMethod?: 'cash' | 'online') => Promise<void>;
+  onEditTransaction: (id: string, amount: number, type: 'incoming' | 'outgoing', categoryId: string, notes: string, date: string, friendName?: string, paymentMethod?: 'cash' | 'online') => Promise<void>;
   onDeleteTransaction: (id: string) => Promise<void>;
 }
 
-export default function TransactionForm({ categories, transactions, onCreateTransaction, onDeleteTransaction }: TransactionFormProps) {
+export default function TransactionForm({ categories, transactions, onCreateTransaction, onEditTransaction, onDeleteTransaction }: TransactionFormProps) {
+  const [editingId, setEditingId] = useState<string | null>(null);
   // Form values
   const [amount, setAmount] = useState('');
   const [type, setType] = useState<'incoming' | 'outgoing'>('outgoing');
@@ -48,6 +50,31 @@ export default function TransactionForm({ categories, transactions, onCreateTran
   }, [categories]);
 
   // Handle selected category changing (auto-preset the type or detect if friend category is selected)
+  const startEdit = (t: Transaction) => {
+    setEditingId(t.id);
+    setAmount(String(t.amount));
+    setType(t.type);
+    setCategoryId(t.categoryId);
+    setNotes(t.notes || '');
+    setDate(t.date);
+    setFriendName(t.friendName || '');
+    setPaymentMethod(t.paymentMethod ?? 'online');
+    setError('');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setAmount('');
+    setNotes('');
+    setFriendName('');
+    setDate(new Date().toISOString().split('T')[0]);
+    setCategoryId('');
+    setType('outgoing');
+    setPaymentMethod('online');
+    setError('');
+  };
+
   const handleCategoryChange = (catId: string) => {
     setCategoryId(catId);
     const selected = categories.find(c => c.id === catId);
@@ -92,17 +119,29 @@ export default function TransactionForm({ categories, transactions, onCreateTran
 
     setIsSubmitting(true);
     try {
-      await onCreateTransaction(
-        parsedAmount,
-        type,
-        categoryId,
-        notes.trim(),
-        date,
-        isFriendCategorySelected ? friendName.trim() : undefined,
-        paymentMethod
-      );
-
-      // Reset Form fields
+      if (editingId) {
+        await onEditTransaction(
+          editingId,
+          parsedAmount,
+          type,
+          categoryId,
+          notes.trim(),
+          date,
+          isFriendCategorySelected ? friendName.trim() : undefined,
+          paymentMethod
+        );
+        setEditingId(null);
+      } else {
+        await onCreateTransaction(
+          parsedAmount,
+          type,
+          categoryId,
+          notes.trim(),
+          date,
+          isFriendCategorySelected ? friendName.trim() : undefined,
+          paymentMethod
+        );
+      }
       setAmount('');
       setNotes('');
       setFriendName('');
@@ -174,8 +213,8 @@ export default function TransactionForm({ categories, transactions, onCreateTran
             <DynamicIcon name="DollarSign" />
           </div>
           <div>
-            <h2 className="text-xl font-black text-slate-800 dark:text-white">Record Transaction</h2>
-            <p className="text-xs text-slate-400 dark:text-slate-450">Log and book any expenses, savings, or peer incomes</p>
+            <h2 className="text-xl font-black text-slate-800 dark:text-white">{editingId ? 'Edit Transaction' : 'Record Transaction'}</h2>
+            <p className="text-xs text-slate-400 dark:text-slate-450">{editingId ? 'Update the details below and save' : 'Log and book any expenses, savings, or peer incomes'}</p>
           </div>
         </div>
 
@@ -381,15 +420,27 @@ export default function TransactionForm({ categories, transactions, onCreateTran
             />
           </div>
 
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            id="transaction-submit-btn"
-            className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm uppercase tracking-wider rounded-2xl shadow-xl shadow-indigo-500/10 hover:shadow-indigo-500/20 hover:scale-101 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <Plus size={18} />
-            {isSubmitting ? 'Booking Event...' : 'Book Ledger Event'}
-          </button>
+          <div className="flex gap-3">
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              id="transaction-submit-btn"
+              className="flex-1 py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm uppercase tracking-wider rounded-2xl shadow-xl shadow-indigo-500/10 hover:shadow-indigo-500/20 hover:scale-101 transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+            >
+              {editingId ? <Pencil size={16} /> : <Plus size={18} />}
+              {isSubmitting ? (editingId ? 'Saving...' : 'Booking...') : (editingId ? 'Save Changes' : 'Book Ledger Event')}
+            </button>
+            {editingId && (
+              <button
+                type="button"
+                onClick={cancelEdit}
+                className="px-5 py-4 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold text-sm rounded-2xl transition-all duration-200 flex items-center gap-2 cursor-pointer"
+              >
+                <X size={16} />
+                Cancel
+              </button>
+            )}
+          </div>
         </form>
       </div>
 
@@ -562,10 +613,18 @@ export default function TransactionForm({ categories, transactions, onCreateTran
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3 ml-4 flex-shrink-0">
+                    <div className="flex items-center gap-2 ml-4 flex-shrink-0">
                       <span className={`font-bold text-sm ${isIncoming ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-300'}`}>
                         {isIncoming ? '+' : '-'}₹{t.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
+                      <button
+                        onClick={() => startEdit(t)}
+                        type="button"
+                        className={`p-1.5 rounded-lg transition-all ${editingId === t.id ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400' : 'text-slate-400 hover:text-indigo-500 dark:text-slate-500 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/20'}`}
+                        title="Edit transaction"
+                      >
+                        <Pencil size={13} />
+                      </button>
                       <button
                         onClick={() => {
                           if (confirm('Permanently remove this transaction log from records?')) {
