@@ -597,7 +597,7 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-[#FAF9F6] dark:bg-slate-900 transition-colors duration-250">
+      <div className="flex h-screen w-screen items-center justify-center bg-[#FAF9F6] dark:bg-slate-900 transition-colors duration-[400ms]">
         <div className="text-center space-y-4">
           <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto" />
           <p className="text-sm font-bold text-slate-500 uppercase tracking-widest animate-pulse">
@@ -611,7 +611,7 @@ export default function App() {
   // GREETING LANDING ACCOUNT GATE
   if (!user && !isDemoMode) {
     return (
-      <div className={`min-h-screen relative flex items-center justify-center p-6 overflow-hidden transition-colors duration-250 ${
+      <div className={`min-h-screen relative flex items-center justify-center p-6 overflow-hidden transition-colors duration-[400ms] ${
         isDarkMode ? 'dark bg-slate-950 text-white' : 'bg-[#F5F5F0] text-slate-800'
       }`}>
         {/* Dynamic Refractive Bubbles behind the Glass Pane */}
@@ -705,7 +705,7 @@ export default function App() {
   }
 
   return (
-    <div className={`min-h-screen relative flex flex-col font-sans transition-colors duration-250 overflow-hidden ${
+    <div className={`min-h-screen relative flex flex-col font-sans transition-colors duration-[400ms] overflow-hidden ${
       isDarkMode ? 'dark bg-slate-950 text-white' : 'bg-[#F5F5F0] text-slate-800'
     }`} id="main-frame-root">
       
@@ -777,10 +777,10 @@ export default function App() {
         </header>
 
         {/* DASHBOARD CONTAINER BODY */}
-        <main className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-6 py-8" id="scrolling-stage">
-          
-          {/* TABS SELECT NAVIGATION BAR */}
-          <div className="flex items-center gap-1.5 glass-panel p-1.5 rounded-3xl shadow-[0_15px_35px_rgba(0,0,0,0.03)] mb-8 overflow-x-auto scroller-none" id="dashboard-navbar">
+        <main className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-6 py-8 pb-24 md:pb-8" id="scrolling-stage">
+
+          {/* TABS SELECT NAVIGATION BAR — desktop only */}
+          <div className="hidden md:flex items-center gap-1.5 glass-panel p-1.5 rounded-3xl shadow-[0_15px_35px_rgba(0,0,0,0.03)] mb-8 overflow-x-auto scroller-none" id="dashboard-navbar">
             <button
               onClick={() => setActiveTab('dashboard')}
               id="nav-tab-dashboard"
@@ -973,10 +973,60 @@ export default function App() {
           </div>
         </main>
 
-        {/* FOOTER ADHERENCE LINE */}
-        <footer className="mt-8 py-6 text-center text-[10px] text-slate-400 dark:text-slate-500 bg-white/20 dark:bg-slate-950/10 border-t border-white/30 dark:border-slate-900" id="app-footer-brand">
+        {/* FOOTER ADHERENCE LINE — desktop only */}
+        <footer className="hidden md:block mt-8 py-6 text-center text-[10px] text-slate-400 dark:text-slate-500 bg-white/20 dark:bg-slate-950/10 border-t border-white/30 dark:border-slate-900" id="app-footer-brand">
           <p className="font-medium">Spendly. &copy; {new Date().getFullYear()} &bull; Synced with Enterprise Firebase Database securely</p>
         </footer>
+
+        {/* MOBILE BOTTOM NAV BAR — floating pill with sliding indicator */}
+        {(() => {
+          const bottomTabs: { tab: ActiveTab; icon: any; label: string }[] = [
+            { tab: 'dashboard',   icon: LayoutDashboard, label: 'Home'   },
+            { tab: 'ledger',      icon: ReceiptText,      label: 'Ledger' },
+            { tab: 'debts',       icon: ArrowRightLeft,   label: 'Debts'  },
+            { tab: 'investments', icon: TrendingUp,       label: 'Invest' },
+            { tab: 'categories',  icon: FolderKanban,     label: 'More'   },
+          ];
+          const activeIndex = bottomTabs.findIndex(t => t.tab === activeTab);
+          return (
+            <nav
+              id="mobile-bottom-nav"
+              className="md:hidden fixed left-3 right-3 z-50 flex items-center bg-white/88 dark:bg-slate-900/92 backdrop-blur-2xl rounded-[28px] border border-white/70 dark:border-slate-700/40 shadow-[0_10px_44px_rgba(0,0,0,0.16),0_2px_10px_rgba(0,0,0,0.07)] overflow-hidden"
+              style={{ bottom: 'calc(1rem + env(safe-area-inset-bottom)', padding: '6px' }}
+            >
+              {/* Sliding background pill */}
+              <div
+                className="absolute top-[6px] bottom-[6px] rounded-[20px] bg-indigo-600 dark:bg-indigo-500 shadow-[0_4px_16px_rgba(99,102,241,0.45)]"
+                style={{
+                  width: 'calc(20% - 3px)',
+                  left: `calc(${activeIndex} * 20% + 1.5px)`,
+                  transition: 'left 0.4s cubic-bezier(0.25, 1, 0.5, 1)',
+                  willChange: 'left',
+                }}
+              />
+
+              {/* Tab buttons */}
+              {bottomTabs.map(({ tab, icon: Icon, label }) => {
+                const active = activeTab === tab;
+                return (
+                  <button
+                    key={tab}
+                    type="button"
+                    title={label}
+                    onClick={() => setActiveTab(tab)}
+                    className="relative z-10 flex items-center justify-center flex-1 py-2.5 active:scale-95 transition-transform duration-150"
+                  >
+                    <Icon
+                      size={21}
+                      strokeWidth={active ? 2.5 : 1.7}
+                      className={`transition-colors duration-[400ms] ${active ? 'text-white' : 'text-slate-400 dark:text-slate-500'}`}
+                    />
+                  </button>
+                );
+              })}
+            </nav>
+          );
+        })()}
       </div>
     </div>
   );
