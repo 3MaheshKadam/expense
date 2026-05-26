@@ -92,9 +92,10 @@ export default function MetricCards({ transactions, periodTransactions, debts, c
     const pendingToGive = debts.filter(d => d.status === 'pending' && d.type === 'to_give').reduce((s, d) => s + d.amount, 0);
     const pendingToReceive = debts.filter(d => d.status === 'pending' && d.type === 'to_receive').reduce((s, d) => s + d.amount, 0);
     const cashInHand = cashBalance + cashIncome - cashExpense;
-    const availableBalance = walletBalance + cashBalance + income - expense - savings;
-    const onlineBalance = availableBalance - cashInHand;
-    const projectedBalance = onlineBalance + pendingToReceive - pendingToGive;
+    const onlineIncome = income - cashIncome;
+    const onlineOutgoing = (expense + savings) - cashExpense;
+    const availableBalance = walletBalance + onlineIncome - onlineOutgoing;
+    const projectedBalance = availableBalance + pendingToReceive - pendingToGive;
     return { availableBalance, projectedBalance, cashInHand, pendingToGive, pendingToReceive };
   }, [transactions, debts, categories, walletBalance, cashBalance]);
 
@@ -377,7 +378,7 @@ export default function MetricCards({ transactions, periodTransactions, debts, c
               <span className="text-slate-300 dark:text-slate-700 text-xs">|</span>
               <span className="flex items-center gap-1.5 text-[11px] font-semibold text-indigo-500 dark:text-indigo-400">
                 <CreditCard size={13} />
-                Online: {hidden ? '••••' : `₹${fmt(allTimeStats.availableBalance - allTimeStats.cashInHand)}`}
+                Online: {hidden ? '••••' : `₹${fmt(allTimeStats.availableBalance)}`}
               </span>
             </div>
 
