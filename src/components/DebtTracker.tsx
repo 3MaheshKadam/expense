@@ -363,7 +363,7 @@ export default function DebtTracker({ debts, onCreateDebt, onResolveDebt, onDele
                           {d.notes || 'No description added'}
                         </p>
 
-                        <div className="flex items-center gap-4 mt-2 text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                        <div className="flex items-center gap-8 mt-2 text-[10px] text-slate-400 dark:text-slate-500 font-medium">
                           {d.dueDate && (
                             <span className="flex items-center gap-1">
                               <Clock size={10} />
