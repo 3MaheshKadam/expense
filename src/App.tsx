@@ -901,21 +901,23 @@ export default function App() {
             </button>
           </div>
 
-          {/* METRICS TOP BOARD */}
-          <MetricCards
-            transactions={transactions}
-            periodTransactions={periodTransactions}
-            debts={debts}
-            categories={categories}
-            isDarkMode={isDarkMode}
-            walletBalance={walletBalance}
-            onSetWalletBalance={handleSetWalletBalance}
-            cashBalance={cashBalance}
-            onSetCashBalance={handleSetCashBalance}
-            compact={activeTab !== 'dashboard'}
-            selectedPeriod={selectedPeriod}
-            onPeriodChange={setSelectedPeriod}
-          />
+          {/* METRICS TOP BOARD — always visible on desktop; mobile shows only on dashboard */}
+          <div className={activeTab !== 'dashboard' ? 'hidden md:block' : ''}>
+            <MetricCards
+              transactions={transactions}
+              periodTransactions={periodTransactions}
+              debts={debts}
+              categories={categories}
+              isDarkMode={isDarkMode}
+              walletBalance={walletBalance}
+              onSetWalletBalance={handleSetWalletBalance}
+              cashBalance={cashBalance}
+              onSetCashBalance={handleSetCashBalance}
+              compact={activeTab !== 'dashboard'}
+              selectedPeriod={selectedPeriod}
+              onPeriodChange={setSelectedPeriod}
+            />
+          </div>
 
           {/* INTERACTIVE COMPONENT SWITCH DESKTOP-CENTRIC */}
           <div className="mt-4" id="app-routing-viewport">
