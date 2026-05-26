@@ -1,13 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, Trash2, Search, ArrowUpRight, ArrowDownLeft, Calendar, HelpCircle, DollarSign, Filter, Users } from 'lucide-react';
+import { Plus, Trash2, Search, ArrowUpRight, ArrowDownLeft, Calendar, HelpCircle, DollarSign, Filter, Users, Banknote, CreditCard } from 'lucide-react';
 import { Category, Transaction } from '../types';
 import DynamicIcon from './DynamicIcon';
 
 interface TransactionFormProps {
   categories: Category[];
   transactions: Transaction[];
-  onCreateTransaction: (amount: number, type: 'incoming' | 'outgoing', categoryId: string, notes: string, date: string, friendName?: string) => Promise<void>;
+  onCreateTransaction: (amount: number, type: 'incoming' | 'outgoing', categoryId: string, notes: string, date: string, friendName?: string, paymentMethod?: 'cash' | 'online') => Promise<void>;
   onDeleteTransaction: (id: string) => Promise<void>;
 }
 
@@ -19,12 +19,14 @@ export default function TransactionForm({ categories, transactions, onCreateTran
   const [notes, setNotes] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [friendName, setFriendName] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'online'>('online');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Search and filter states
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
+  const [filterPayment, setFilterPayment] = useState<'all' | 'cash' | 'online'>('all');
   const [datePreset, setDatePreset] = useState('all');
   const [customN, setCustomN] = useState(1);
   const [customUnit, setCustomUnit] = useState<'days' | 'weeks' | 'months' | 'years'>('weeks');
@@ -96,13 +98,15 @@ export default function TransactionForm({ categories, transactions, onCreateTran
         categoryId,
         notes.trim(),
         date,
-        isFriendCategorySelected ? friendName.trim() : undefined
+        isFriendCategorySelected ? friendName.trim() : undefined,
+        paymentMethod
       );
 
       // Reset Form fields
       setAmount('');
       setNotes('');
       setFriendName('');
+      setPaymentMethod('online');
     } catch (err) {
       setError('Failed to record transaction. Please try again.');
     } finally {
@@ -153,10 +157,13 @@ export default function TransactionForm({ categories, transactions, onCreateTran
 
         const matchesDate = !rangeStart || new Date(t.date) >= rangeStart;
 
-        return matchesSearch && matchesCategory && matchesDate;
+        const method = t.paymentMethod ?? 'online';
+        const matchesPayment = filterPayment === 'all' || method === filterPayment;
+
+        return matchesSearch && matchesCategory && matchesDate && matchesPayment;
       })
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [transactions, searchTerm, filterCategory, datePreset, customN, customUnit, categories]);
+  }, [transactions, searchTerm, filterCategory, filterPayment, datePreset, customN, customUnit, categories]);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-fade-in" id="transaction-manager-root">
@@ -228,6 +235,39 @@ export default function TransactionForm({ categories, transactions, onCreateTran
               >
                 <ArrowUpRight size={16} />
                 Incoming (Earn)
+              </button>
+            </div>
+          </div>
+
+          {/* Payment Method Toggle */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
+              Payment Method
+            </label>
+            <div className="grid grid-cols-2 gap-2" id="payment-method-selector">
+              <button
+                type="button"
+                onClick={() => setPaymentMethod('online')}
+                className={`py-2.5 rounded-2xl text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 border transition-all duration-200 ${
+                  paymentMethod === 'online'
+                    ? 'bg-indigo-500 border-indigo-400 text-white shadow-md shadow-indigo-500/10'
+                    : 'border-white/40 dark:border-slate-800 bg-white/40 dark:bg-slate-900/40 text-slate-700 dark:text-slate-400 hover:bg-white/65'
+                }`}
+              >
+                <CreditCard size={15} />
+                Online / UPI
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaymentMethod('cash')}
+                className={`py-2.5 rounded-2xl text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 border transition-all duration-200 ${
+                  paymentMethod === 'cash'
+                    ? 'bg-amber-500 border-amber-400 text-white shadow-md shadow-amber-500/10'
+                    : 'border-white/40 dark:border-slate-800 bg-white/40 dark:bg-slate-900/40 text-slate-700 dark:text-slate-400 hover:bg-white/65'
+                }`}
+              >
+                <Banknote size={15} />
+                Cash
               </button>
             </div>
           </div>
@@ -318,6 +358,7 @@ export default function TransactionForm({ categories, transactions, onCreateTran
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
+                autoComplete="off"
                 className="w-full pl-11 pr-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/8 dark:focus:ring-indigo-500/15 focus:border-indigo-500 dark:focus:border-indigo-400 text-slate-900 dark:text-white transition-all cursor-pointer shadow-sm"
                 id="transaction-date-field"
               />
@@ -411,7 +452,7 @@ export default function TransactionForm({ categories, transactions, onCreateTran
         </div>
 
         {/* Filters and search grids */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6" id="ledger-filters-ribbon">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6" id="ledger-filters-ribbon">
           {/* Keyword Search */}
           <div className="relative">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
@@ -438,6 +479,21 @@ export default function TransactionForm({ categories, transactions, onCreateTran
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
+            </select>
+          </div>
+
+          {/* Payment Method Filter */}
+          <div className="relative">
+            <Banknote className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
+            <select
+              value={filterPayment}
+              onChange={(e) => setFilterPayment(e.target.value as typeof filterPayment)}
+              className="w-full pl-10 pr-4 py-2.5 bg-white/40 dark:bg-slate-900/50 border border-white/60 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer shadow-sm"
+              id="ledger-payment-filter"
+            >
+              <option value="all">All Methods</option>
+              <option value="online">Online / UPI</option>
+              <option value="cash">Cash Only</option>
             </select>
           </div>
         </div>
@@ -475,10 +531,21 @@ export default function TransactionForm({ categories, transactions, onCreateTran
                         <DynamicIcon name={cat?.icon || 'DollarSign'} className="text-white" />
                       </div>
                       <div className="min-w-0 leading-tight">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <h4 className="font-semibold text-slate-800 dark:text-slate-100 text-sm truncate">
                             {cat ? cat.name : 'Unknown budget channel'}
                           </h4>
+                          {(t.paymentMethod === 'cash') ? (
+                            <span className="inline-flex items-center gap-0.5 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-800/40">
+                              <Banknote size={9} />
+                              Cash
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 bg-indigo-50/60 text-indigo-500 dark:bg-indigo-950/30 dark:text-indigo-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full border border-indigo-100 dark:border-indigo-900/40">
+                              <CreditCard size={9} />
+                              Online
+                            </span>
+                          )}
                           {t.friendName && (
                             <span className="inline-flex items-center gap-0.5 bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                               <Users size={10} />

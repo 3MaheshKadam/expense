@@ -18,6 +18,7 @@ export interface Transaction {
   notes?: string;
   date: string; // ISO date string (YYYY-MM-DD)
   friendName?: string;
+  paymentMethod?: 'cash' | 'online';
   createdAt: string; // string timestamp
 }
 
@@ -38,4 +39,18 @@ export interface BudgetStatus {
   totalExpenses: number;
   totalSavings: number;
   netWorth: number;
+}
+
+export interface Investment {
+  id: string;
+  userId: string;
+  name: string;
+  principal: number;
+  expectedReturn: number;
+  startDate: string;
+  maturityDate: string;
+  status: 'active' | 'confirmed';
+  notes?: string;
+  createdAt: string;
+  confirmedAt?: string;
 }

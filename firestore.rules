@@ -34,7 +34,8 @@ service cloud.firestore {
         && data.categoryId is string && data.categoryId.size() <= 128
         && (data.notes == null || (data.notes is string && data.notes.size() <= 500))
         && data.date is string && data.date.size() <= 50
-        && (data.friendName == null || (data.friendName is string && data.friendName.size() <= 100));
+        && (data.friendName == null || (data.friendName is string && data.friendName.size() <= 100))
+        && (data.paymentMethod == null || data.paymentMethod == 'cash' || data.paymentMethod == 'online');
     }
 
     function isValidDebt(data) {
@@ -84,11 +85,46 @@ service cloud.firestore {
         && request.resource.data.id == resource.data.id
         && request.resource.data.createdAt == resource.data.createdAt // Original timestamp is immortal
         && (
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['amount', 'type', 'categoryId', 'notes', 'date', 'friendName'])
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['amount', 'type', 'categoryId', 'notes', 'date', 'friendName', 'paymentMethod'])
         );
 
       allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
 
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    function isValidInvestment(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.userId == request.auth.uid
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.principal is number && data.principal >= 0
+        && data.expectedReturn is number && data.expectedReturn >= 0
+        && data.startDate is string && data.startDate.size() <= 50
+        && data.maturityDate is string && data.maturityDate.size() <= 50
+        && data.status is string && (data.status == 'active' || data.status == 'confirmed')
+        && (data.notes == null || (data.notes is string && data.notes.size() <= 500))
+        && (data.confirmedAt == null || (data.confirmedAt is string && data.confirmedAt.size() <= 50));
+    }
+
+    match /investments/{investmentId} {
+      allow create: if isSignedIn()
+        && isValidId(investmentId)
+        && request.resource.data.id == investmentId
+        && isValidInvestment(request.resource.data)
+        && request.resource.data.createdAt == request.time;
+
+      allow update: if isSignedIn()
+        && isValidId(investmentId)
+        && isValidInvestment(request.resource.data)
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.createdAt == resource.data.createdAt
+        && (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'confirmedAt'])
+        );
+
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
       allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
       allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
     }

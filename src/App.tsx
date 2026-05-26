@@ -20,30 +20,32 @@ import {
   ArrowRightLeft,
   ArrowUpRight
 } from 'lucide-react';
-import { 
-  collection, 
-  onSnapshot, 
-  setDoc, 
-  doc, 
-  deleteDoc, 
-  query, 
-  where, 
+import {
+  collection,
+  onSnapshot,
+  setDoc,
+  doc,
+  deleteDoc,
+  query,
+  where,
   serverTimestamp,
-  getDocFromServer
+  getDocFromServer,
+  updateDoc
 } from 'firebase/firestore';
 import { signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
 import { db, auth, isPlaceholderConfig, handleFirestoreError, OperationType } from './firebase';
-import { Category, Transaction, Debt, CategoryType } from './types';
+import { Category, Transaction, Debt, CategoryType, Investment } from './types';
 import { INITIAL_CATEGORIES, INITIAL_TRANSACTIONS, INITIAL_DEBTS } from './mockData';
 import MetricCards from './components/MetricCards';
 import CategoryManager from './components/CategoryManager';
 import TransactionForm from './components/TransactionForm';
 import DebtTracker from './components/DebtTracker';
+import InvestmentTracker from './components/InvestmentTracker';
 import AnalyticsPanel from './components/AnalyticsPanel';
 import ThemeToggle from './components/ThemeToggle';
 import DynamicIcon from './components/DynamicIcon';
 
-type ActiveTab = 'dashboard' | 'ledger' | 'debts' | 'categories';
+type ActiveTab = 'dashboard' | 'ledger' | 'debts' | 'categories' | 'investments';
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
@@ -56,6 +58,15 @@ export default function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [debts, setDebts] = useState<Debt[]>([]);
+  const [investments, setInvestments] = useState<Investment[]>([]);
+  const [walletBalance, setWalletBalanceState] = useState<number>(() => {
+    const saved = localStorage.getItem('etc_wallet_balance');
+    return saved ? parseFloat(saved) : 0;
+  });
+  const [cashBalance, setCashBalanceState] = useState<number>(() => {
+    const saved = localStorage.getItem('etc_cash_balance');
+    return saved ? parseFloat(saved) : 0;
+  });
 
   // Local Storage Utilities for Mock/Demo accounts
   const getLocalData = (key: string, fallback: any) => {
@@ -131,8 +142,17 @@ export default function App() {
       const cachedTxs = getLocalData(`etc_txs_${currentUserId}`, null);
       const cachedDebts = getLocalData(`etc_debts_${currentUserId}`, null);
 
-      if (cachedCats) {
-        setCategories(cachedCats);
+      if (cachedCats && cachedCats.length > 0) {
+        // Back-fill any missing default category types (e.g. savings) for existing users
+        const hasSavings = cachedCats.some((c: Category) => c.type === 'savings');
+        if (!hasSavings) {
+          const savingsDefaults = INITIAL_CATEGORIES(currentUserId).filter(c => c.type === 'savings');
+          const merged = [...cachedCats, ...savingsDefaults];
+          setCategories(merged);
+          saveLocalData(`etc_cats_${currentUserId}`, merged);
+        } else {
+          setCategories(cachedCats);
+        }
       } else {
         const standard = INITIAL_CATEGORIES(currentUserId);
         setCategories(standard);
@@ -154,6 +174,9 @@ export default function App() {
         setDebts(standard);
         saveLocalData(`etc_debts_${currentUserId}`, standard);
       }
+
+      const cachedInvestments = getLocalData(`etc_investments_${currentUserId}`, null);
+      setInvestments(cachedInvestments ?? []);
     } else {
       // 2. FIRESTORE REAL-TIME MODE SYNC
       setLoading(true);
@@ -164,8 +187,8 @@ export default function App() {
         const items: Category[] = [];
         snap.forEach(d => items.push({ id: d.id, ...d.data() } as Category));
         
-        // Auto seed standard templates if absolutely empty database
         if (items.length === 0) {
+          // Seed all defaults for brand new users
           const standard = INITIAL_CATEGORIES(user.uid);
           standard.forEach(async (c) => {
             try {
@@ -175,7 +198,20 @@ export default function App() {
             }
           });
         } else {
-          setCategories(items);
+          // Back-fill savings categories for existing users who have none
+          const hasSavings = items.some(c => c.type === 'savings');
+          if (!hasSavings) {
+            const savingsDefaults = INITIAL_CATEGORIES(user.uid).filter(c => c.type === 'savings');
+            savingsDefaults.forEach(async (c) => {
+              try {
+                await setDoc(doc(db, 'categories', c.id), c);
+              } catch (err) {
+                handleFirestoreError(err, OperationType.CREATE, `categories/${c.id}`);
+              }
+            });
+          } else {
+            setCategories(items);
+          }
         }
       }, (error) => {
         handleFirestoreError(error, OperationType.GET, 'categories');
@@ -220,12 +256,32 @@ export default function App() {
         handleFirestoreError(error, OperationType.GET, 'debts');
       });
 
+      // Listen to Investments
+      const investQuery = query(collection(db, 'investments'), where('userId', '==', user.uid));
+      const unsubscribeInvest = onSnapshot(investQuery, (snap) => {
+        const items: Investment[] = [];
+        snap.forEach(d => {
+          const raw = d.data();
+          items.push({
+            id: d.id,
+            ...raw,
+            createdAt: raw.createdAt?.seconds
+              ? new Date(raw.createdAt.seconds * 1000).toISOString()
+              : raw.createdAt,
+          } as Investment);
+        });
+        setInvestments(items);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'investments');
+      });
+
       setLoading(false);
 
       return () => {
         unsubscribeCat();
         unsubscribeTx();
         unsubscribeDebt();
+        unsubscribeInvest();
       };
     }
   }, [user, isDemoMode]);
@@ -250,6 +306,16 @@ export default function App() {
     } catch (err) {
       console.error('Signout Error: ', err);
     }
+  };
+
+  const handleSetWalletBalance = (amount: number) => {
+    setWalletBalanceState(amount);
+    localStorage.setItem('etc_wallet_balance', String(amount));
+  };
+
+  const handleSetCashBalance = (amount: number) => {
+    setCashBalanceState(amount);
+    localStorage.setItem('etc_cash_balance', String(amount));
   };
 
   // --- BUSINESS LOGIC CRUD WRAPPERS ---
@@ -296,12 +362,13 @@ export default function App() {
 
   // Transaction CRUD
   const handleCreateTransaction = async (
-    amount: number, 
-    type: 'incoming' | 'outgoing', 
-    categoryId: string, 
-    notes: string, 
-    date: string, 
-    friendName?: string
+    amount: number,
+    type: 'incoming' | 'outgoing',
+    categoryId: string,
+    notes: string,
+    date: string,
+    friendName?: string,
+    paymentMethod: 'cash' | 'online' = 'online'
   ) => {
     const currentUserId = user ? user.uid : 'local-demo-user';
     const id = `t-${Date.now()}`;
@@ -312,10 +379,11 @@ export default function App() {
       amount,
       type,
       categoryId,
-      notes: notes || undefined,
       date,
-      friendName: friendName || undefined,
+      paymentMethod,
     };
+    if (notes) newTx.notes = notes;
+    if (friendName) newTx.friendName = friendName;
 
     if (isDemoMode) {
       newTx.createdAt = new Date().toISOString();
@@ -365,10 +433,10 @@ export default function App() {
       type,
       personName,
       amount,
-      notes: notes || undefined,
-      dueDate: dueDate || undefined,
       status: 'pending',
     };
+    if (notes) newDebt.notes = notes;
+    if (dueDate) newDebt.dueDate = dueDate;
 
     if (isDemoMode) {
       newDebt.createdAt = new Date().toISOString();
@@ -396,12 +464,7 @@ export default function App() {
       saveLocalData(`etc_debts_${currentUserId}`, revised);
     } else {
       try {
-        const updated = { 
-          ...target,
-          status: 'resolved' as const,
-          createdAt: new Date(target.createdAt).toISOString() // serialize
-        };
-        await setDoc(doc(db, 'debts', id), updated);
+        await updateDoc(doc(db, 'debts', id), { status: 'resolved' });
       } catch (err) {
         handleFirestoreError(err, OperationType.UPDATE, `debts/${id}`);
       }
@@ -436,6 +499,91 @@ export default function App() {
         await deleteDoc(doc(db, 'debts', id));
       } catch (err) {
         handleFirestoreError(err, OperationType.DELETE, `debts/${id}`);
+      }
+    }
+  };
+
+  // Investment CRUD
+  const handleCreateInvestment = async (
+    name: string,
+    principal: number,
+    expectedReturn: number,
+    startDate: string,
+    maturityDate: string,
+    notes?: string
+  ) => {
+    const currentUserId = user ? user.uid : 'local-demo-user';
+    const id = `inv-${Date.now()}`;
+    const newInv: any = {
+      id, userId: currentUserId, name, principal, expectedReturn,
+      startDate, maturityDate, status: 'active',
+    };
+    if (notes) newInv.notes = notes;
+
+    if (isDemoMode) {
+      newInv.createdAt = new Date().toISOString();
+      const revised = [newInv, ...investments];
+      setInvestments(revised);
+      saveLocalData(`etc_investments_${currentUserId}`, revised);
+    } else {
+      try {
+        newInv.createdAt = serverTimestamp();
+        await setDoc(doc(db, 'investments', id), newInv);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, `investments/${id}`);
+      }
+    }
+  };
+
+  const handleConfirmInvestment = async (id: string) => {
+    const currentUserId = user ? user.uid : 'local-demo-user';
+    const inv = investments.find(i => i.id === id);
+    if (!inv) return;
+
+    const today = new Date().toISOString().split('T')[0];
+
+    // Book the return as an incoming transaction
+    const incomeCat = categories.find(c => c.type === 'income') || categories[0];
+    if (incomeCat) {
+      await handleCreateTransaction(
+        inv.expectedReturn,
+        'incoming',
+        incomeCat.id,
+        `Investment return: ${inv.name}`,
+        today,
+        undefined,
+        'online'
+      );
+    }
+
+    // Mark investment as confirmed
+    if (isDemoMode) {
+      const revised = investments.map(i =>
+        i.id === id ? { ...i, status: 'confirmed' as const, confirmedAt: today } : i
+      );
+      setInvestments(revised);
+      saveLocalData(`etc_investments_${currentUserId}`, revised);
+    } else {
+      try {
+        await updateDoc(doc(db, 'investments', id), { status: 'confirmed', confirmedAt: today });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, `investments/${id}`);
+      }
+    }
+  };
+
+  const handleDeleteInvestment = async (id: string) => {
+    const currentUserId = user ? user.uid : 'local-demo-user';
+
+    if (isDemoMode) {
+      const revised = investments.filter(i => i.id !== id);
+      setInvestments(revised);
+      saveLocalData(`etc_investments_${currentUserId}`, revised);
+    } else {
+      try {
+        await deleteDoc(doc(db, 'investments', id));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, `investments/${id}`);
       }
     }
   };
@@ -688,12 +836,34 @@ export default function App() {
               <FolderKanban size={14} />
               Manage Categories
             </button>
+
+            <button
+              onClick={() => setActiveTab('investments')}
+              id="nav-tab-investments"
+              type="button"
+              className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+                activeTab === 'investments'
+                  ? 'bg-indigo-600 dark:bg-indigo-500 text-white shadow-xl shadow-indigo-500/10'
+                  : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-white/40 dark:hover:bg-slate-900/30'
+              }`}
+            >
+              <TrendingUp size={14} />
+              Investments
+            </button>
           </div>
 
-          {/* METRICS TOP BOARD (Always displayed on dashboard, ledger & debts to highlight summary balance) */}
-          {activeTab !== 'categories' && (
-            <MetricCards transactions={transactions} debts={debts} isDarkMode={isDarkMode} />
-          )}
+          {/* METRICS TOP BOARD */}
+          <MetricCards
+            transactions={transactions}
+            debts={debts}
+            categories={categories}
+            isDarkMode={isDarkMode}
+            walletBalance={walletBalance}
+            onSetWalletBalance={handleSetWalletBalance}
+            cashBalance={cashBalance}
+            onSetCashBalance={handleSetCashBalance}
+            compact={activeTab !== 'dashboard'}
+          />
 
           {/* INTERACTIVE COMPONENT SWITCH DESKTOP-CENTRIC */}
           <div className="mt-4" id="app-routing-viewport">
@@ -785,10 +955,19 @@ export default function App() {
             )}
 
             {activeTab === 'categories' && (
-              <CategoryManager 
-                categories={categories} 
-                onCreateCategory={handleCreateCategory} 
-                onDeleteCategory={handleDeleteCategory} 
+              <CategoryManager
+                categories={categories}
+                onCreateCategory={handleCreateCategory}
+                onDeleteCategory={handleDeleteCategory}
+              />
+            )}
+
+            {activeTab === 'investments' && (
+              <InvestmentTracker
+                investments={investments}
+                onCreateInvestment={handleCreateInvestment}
+                onConfirmInvestment={handleConfirmInvestment}
+                onDeleteInvestment={handleDeleteInvestment}
               />
             )}
           </div>

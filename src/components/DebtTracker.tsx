@@ -1,16 +1,17 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  Users, 
-  Plus, 
-  CheckCircle2, 
-  Clock, 
-  Trash2, 
-  ArrowUpRight, 
-  ArrowDownLeft, 
+import {
+  Users,
+  Plus,
+  CheckCircle2,
+  Clock,
+  Trash2,
+  ArrowUpRight,
+  ArrowDownLeft,
   HelpCircle,
   TrendingDown,
-  Scale
+  Scale,
+  Calendar
 } from 'lucide-react';
 import { Debt } from '../types';
 
@@ -229,16 +230,23 @@ export default function DebtTracker({ debts, onCreateDebt, onResolveDebt, onDele
 
           {/* Due date input */}
           <div>
-            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-              Target Settlement Date (Optional)
+            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <Calendar size={12} />
+              Due Date <span className="font-normal normal-case tracking-normal opacity-60">(optional)</span>
             </label>
-            <input
-              type="date"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              className="w-full px-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/8 dark:focus:ring-indigo-500/15 focus:border-indigo-500 dark:focus:border-indigo-400 text-slate-900 dark:text-white transition-all cursor-pointer shadow-sm"
-              id="debt-due-date"
-            />
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+                <Calendar size={15} />
+              </span>
+              <input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                autoComplete="off"
+                className="w-full pl-11 pr-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-4 focus:ring-indigo-500/8 dark:focus:ring-indigo-500/15 focus:border-indigo-500 dark:focus:border-indigo-400 text-slate-900 dark:text-white transition-all cursor-pointer shadow-sm"
+                id="debt-due-date"
+              />
+            </div>
           </div>
 
           {/* Reason memo */}
@@ -375,12 +383,8 @@ export default function DebtTracker({ debts, onCreateDebt, onResolveDebt, onDele
                           {isPending && (
                             <button
                               onClick={() => {
-                                const actionVerb = isToReceive ? 'receive' : 'pay';
-                                if (confirm(`Resolve this ledger tab? Choose "OK" to settle and automatically record a matching cash inflow/outflow transaction in the ledger.`)) {
+                                if (confirm(`Settle this tab with ${d.personName}? Click OK to also record a matching cash transaction in the ledger, or Cancel to abort.`)) {
                                   onResolveDebt(d.id, true);
-                                } else {
-                                  // settle only, no matching transaction
-                                  onResolveDebt(d.id, false);
                                 }
                               }}
                               id={`btn-settle-${d.id}`}
