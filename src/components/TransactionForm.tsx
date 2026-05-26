@@ -571,73 +571,74 @@ export default function TransactionForm({ categories, transactions, onCreateTran
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.95 }}
                     transition={{ duration: 0.2, delay: Math.min(index * 0.02, 0.2) }}
-                    className="flex items-center justify-between p-4 bg-white/40 dark:bg-slate-900/30 rounded-2xl border border-white/55 dark:border-slate-800/10 transition-all hover:bg-white/70 dark:hover:bg-slate-900/50 shadow-sm"
+                    className={`p-4 rounded-2xl border transition-all shadow-sm ${editingId === t.id ? 'bg-indigo-50/60 dark:bg-indigo-950/20 border-indigo-200 dark:border-indigo-800/40' : 'bg-white/40 dark:bg-slate-900/30 border-white/55 dark:border-slate-800/10 hover:bg-white/70 dark:hover:bg-slate-900/50'}`}
                   >
-                    <div className="flex items-center gap-3.5 min-w-0">
-                      {/* Icon bubble */}
-                      <div 
-                        className="w-10 h-10 rounded-xl flex items-center justify-center text-white flex-shrink-0 shadow-sm"
+                    <div className="flex items-start gap-3">
+                      {/* Icon */}
+                      <div
+                        className="w-10 h-10 rounded-xl flex items-center justify-center text-white flex-shrink-0 shadow-sm mt-0.5"
                         style={{ backgroundColor: cat?.color || '#94a3b8' }}
                       >
-                        <DynamicIcon name={cat?.icon || 'DollarSign'} className="text-white" />
+                        <DynamicIcon name={cat?.icon || 'DollarSign'} className="text-white" size={16} />
                       </div>
-                      <div className="min-w-0 leading-tight">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h4 className="font-semibold text-slate-800 dark:text-slate-100 text-sm truncate">
-                            {cat ? cat.name : 'Unknown budget channel'}
-                          </h4>
-                          {(t.paymentMethod === 'cash') ? (
-                            <span className="inline-flex items-center gap-0.5 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-800/40">
-                              <Banknote size={9} />
-                              Cash
+
+                      {/* Vertical stack */}
+                      <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                        {/* 1. Amount — top, biggest */}
+                        <span className={`font-black text-base leading-tight ${isIncoming ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-800 dark:text-slate-200'}`}>
+                          {isIncoming ? '+' : '-'}₹{t.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+
+                        {/* 2. Category name */}
+                        <h4 className="font-semibold text-slate-700 dark:text-slate-200 text-sm truncate">
+                          {cat ? cat.name : 'Unknown category'}
+                        </h4>
+
+                        {/* 3. Notes / description */}
+                        {t.notes && (
+                          <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
+                            {t.notes}
+                          </p>
+                        )}
+
+                        {/* 4. Badges + date + edit/delete */}
+                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                          {t.paymentMethod === 'cash' ? (
+                            <span className="inline-flex items-center gap-0.5 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-800/40">
+                              <Banknote size={8} /> Cash
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-0.5 bg-indigo-50/60 text-indigo-500 dark:bg-indigo-950/30 dark:text-indigo-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full border border-indigo-100 dark:border-indigo-900/40">
-                              <CreditCard size={9} />
-                              Online
+                            <span className="inline-flex items-center gap-0.5 bg-indigo-50/60 text-indigo-500 dark:bg-indigo-950/30 dark:text-indigo-400 text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-indigo-100 dark:border-indigo-900/40">
+                              <CreditCard size={8} /> Online
                             </span>
                           )}
                           {t.friendName && (
-                            <span className="inline-flex items-center gap-0.5 bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                              <Users size={10} />
-                              {t.friendName}
+                            <span className="inline-flex items-center gap-0.5 bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400 text-[9px] font-bold px-1.5 py-0.5 rounded-full border border-purple-100 dark:border-purple-800/40">
+                              <Users size={8} /> {t.friendName}
                             </span>
                           )}
+                          <span className="text-[9px] font-medium text-slate-400 dark:text-slate-500">
+                            {new Date(t.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })}
+                          </span>
+                          <button
+                            onClick={() => startEdit(t)}
+                            type="button"
+                            className={`p-1 rounded-lg transition-all ml-auto ${editingId === t.id ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400' : 'text-slate-400 hover:text-indigo-500 dark:text-slate-500 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/20'}`}
+                            title="Edit"
+                          >
+                            <Pencil size={12} />
+                          </button>
+                          <button
+                            onClick={() => { if (confirm('Delete this transaction?')) onDeleteTransaction(t.id); }}
+                            id={`btn-del-tx-${t.id}`}
+                            type="button"
+                            className="p-1 text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-all"
+                            title="Delete"
+                          >
+                            <Trash2 size={12} />
+                          </button>
                         </div>
-                        <p className="text-[11px] text-slate-450 dark:text-slate-500 mt-1 truncate">
-                          {t.notes || 'No description added'}
-                        </p>
-                        <span className="text-[9px] font-mono font-medium text-slate-400 dark:text-slate-550 block mt-1">
-                          {new Date(t.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })}
-                        </span>
                       </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 ml-4 flex-shrink-0">
-                      <span className={`font-bold text-sm ${isIncoming ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-300'}`}>
-                        {isIncoming ? '+' : '-'}₹{t.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                      <button
-                        onClick={() => startEdit(t)}
-                        type="button"
-                        className={`p-1.5 rounded-lg transition-all ${editingId === t.id ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400' : 'text-slate-400 hover:text-indigo-500 dark:text-slate-500 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/20'}`}
-                        title="Edit transaction"
-                      >
-                        <Pencil size={13} />
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (confirm('Permanently remove this transaction log from records?')) {
-                            onDeleteTransaction(t.id);
-                          }
-                        }}
-                        id={`btn-del-tx-${t.id}`}
-                        type="button"
-                        className="p-1.5 text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-all"
-                        title="Delete log"
-                      >
-                        <Trash2 size={13} />
-                      </button>
                     </div>
                   </motion.div>
                 );
