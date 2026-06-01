@@ -4,21 +4,23 @@
  */
 
 import { useState, useEffect, useMemo } from 'react';
-import { 
-  Users, 
-  FolderKanban, 
-  LogOut, 
-  LayoutDashboard, 
-  ReceiptText, 
-  PiggyBank, 
-  FileText, 
-  ShieldCheck, 
+import {
+  Users,
+  FolderKanban,
+  LogOut,
+  LayoutDashboard,
+  ReceiptText,
+  PiggyBank,
+  FileText,
+  ShieldCheck,
   HelpCircle,
   TrendingUp,
   Coins,
   Sparkles,
   ArrowRightLeft,
-  ArrowUpRight
+  ArrowUpRight,
+  Link2,
+  Eye,
 } from 'lucide-react';
 import {
   collection,
@@ -30,7 +32,9 @@ import {
   where,
   serverTimestamp,
   getDocFromServer,
-  updateDoc
+  updateDoc,
+  arrayUnion,
+  getDoc,
 } from 'firebase/firestore';
 import { signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
 import { db, auth, isPlaceholderConfig, handleFirestoreError, OperationType } from './firebase';
@@ -43,6 +47,7 @@ import DebtTracker from './components/DebtTracker';
 import InvestmentTracker from './components/InvestmentTracker';
 import AnalyticsPanel from './components/AnalyticsPanel';
 import MonthlySummary from './components/MonthlySummary';
+import ShareModal from './components/ShareModal';
 import ThemeToggle from './components/ThemeToggle';
 import DynamicIcon from './components/DynamicIcon';
 
@@ -54,6 +59,16 @@ export default function App() {
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+
+  // Viewer (read-only) mode — activated when opening a share link
+  const [viewerMode, setViewerMode] = useState(false);
+  const [viewingUserId, setViewingUserId] = useState<string | null>(null);
+  const [viewingOwnerName, setViewingOwnerName] = useState('');
+  const [showShareModal, setShowShareModal] = useState(false);
+  // Read once from URL on first render — never changes
+  const [pendingShareToken] = useState<string | null>(
+    () => new URLSearchParams(window.location.search).get('share')
+  );
 
   // Period filter (shared across MetricCards + AnalyticsPanel)
   const [selectedPeriod, setSelectedPeriod] = useState<Period>(() => {
@@ -141,7 +156,8 @@ export default function App() {
 
   // Sync data streams based on auth and demo profiles
   useEffect(() => {
-    const currentUserId = user ? user.uid : 'local-demo-user';
+    // In viewer mode, query the owner's data; otherwise query own data
+    const currentUserId = viewingUserId || (user ? user.uid : 'local-demo-user');
 
     if (isDemoMode || !user) {
       // 1. OFFLINE DEMO MODE SYNC (LocalStorage)
@@ -189,14 +205,14 @@ export default function App() {
       setLoading(true);
 
       // Listen to Categories
-      const catQuery = query(collection(db, 'categories'), where('userId', '==', user.uid));
+      const catQuery = query(collection(db, 'categories'), where('userId', '==', currentUserId));
       const unsubscribeCat = onSnapshot(catQuery, (snap) => {
         const items: Category[] = [];
         snap.forEach(d => items.push({ id: d.id, ...d.data() } as Category));
-        
-        if (items.length === 0) {
-          // Seed all defaults for brand new users
-          const standard = INITIAL_CATEGORIES(user.uid);
+
+        if (items.length === 0 && !viewingUserId) {
+          // Seed all defaults for brand new users (not in viewer mode)
+          const standard = INITIAL_CATEGORIES(currentUserId);
           standard.forEach(async (c) => {
             try {
               await setDoc(doc(db, 'categories', c.id), c);
@@ -208,7 +224,7 @@ export default function App() {
           // Back-fill savings categories for existing users who have none
           const hasSavings = items.some(c => c.type === 'savings');
           if (!hasSavings) {
-            const savingsDefaults = INITIAL_CATEGORIES(user.uid).filter(c => c.type === 'savings');
+            const savingsDefaults = INITIAL_CATEGORIES(currentUserId).filter(c => c.type === 'savings');
             savingsDefaults.forEach(async (c) => {
               try {
                 await setDoc(doc(db, 'categories', c.id), c);
@@ -225,7 +241,7 @@ export default function App() {
       });
 
       // Listen to Transactions
-      const txQuery = query(collection(db, 'transactions'), where('userId', '==', user.uid));
+      const txQuery = query(collection(db, 'transactions'), where('userId', '==', currentUserId));
       const unsubscribeTx = onSnapshot(txQuery, (snap) => {
         const items: Transaction[] = [];
         snap.forEach(d => {
@@ -245,7 +261,7 @@ export default function App() {
       });
 
       // Listen to Debts
-      const debtQuery = query(collection(db, 'debts'), where('userId', '==', user.uid));
+      const debtQuery = query(collection(db, 'debts'), where('userId', '==', currentUserId));
       const unsubscribeDebt = onSnapshot(debtQuery, (snap) => {
         const items: Debt[] = [];
         snap.forEach(d => {
@@ -264,7 +280,7 @@ export default function App() {
       });
 
       // Listen to Investments
-      const investQuery = query(collection(db, 'investments'), where('userId', '==', user.uid));
+      const investQuery = query(collection(db, 'investments'), where('userId', '==', currentUserId));
       const unsubscribeInvest = onSnapshot(investQuery, (snap) => {
         const items: Investment[] = [];
         snap.forEach(d => {
@@ -282,6 +298,16 @@ export default function App() {
         handleFirestoreError(error, OperationType.GET, 'investments');
       });
 
+      // Listen to wallet + cash balance (single doc per user)
+      const balanceRef = doc(db, 'userBalances', currentUserId);
+      const unsubscribeBalance = onSnapshot(balanceRef, (snap) => {
+        if (snap.exists()) {
+          const d = snap.data();
+          if (typeof d.walletBalance === 'number') setWalletBalanceState(d.walletBalance);
+          if (typeof d.cashBalance === 'number') setCashBalanceState(d.cashBalance);
+        }
+      }, () => { /* ignore permission errors silently */ });
+
       setLoading(false);
 
       return () => {
@@ -289,9 +315,10 @@ export default function App() {
         unsubscribeTx();
         unsubscribeDebt();
         unsubscribeInvest();
+        unsubscribeBalance();
       };
     }
-  }, [user, isDemoMode]);
+  }, [user, isDemoMode, viewingUserId]);
 
   // Auth Operations
   const handleGoogleSignIn = async () => {
@@ -315,14 +342,64 @@ export default function App() {
     }
   };
 
-  const handleSetWalletBalance = (amount: number) => {
-    setWalletBalanceState(amount);
-    localStorage.setItem('etc_wallet_balance', String(amount));
+  // Claim a share token after the user is authenticated
+  const handleClaimShareToken = async (tokenId: string, currentUser: any) => {
+    if (!currentUser || isDemoMode) return;
+    try {
+      const tokenSnap = await getDoc(doc(db, 'shareTokens', tokenId));
+      if (!tokenSnap.exists() || !tokenSnap.data().active) {
+        alert('This share link is invalid or has been revoked.');
+        return;
+      }
+      const tokenData = tokenSnap.data();
+      const ownerId: string = tokenData.ownerId;
+      if (ownerId === currentUser.uid) return; // owner opening own link — no-op
+
+      // Write viewer grant into /viewerGrants/{ownerId}/viewers/{viewerId}
+      await setDoc(
+        doc(db, 'viewerGrants', ownerId, 'viewers', currentUser.uid),
+        {
+          viewerId: currentUser.uid,
+          viewerEmail: currentUser.email || '',
+          tokenId,
+          grantedAt: new Date().toISOString(),
+        }
+      );
+
+      setViewingUserId(ownerId);
+      setViewingOwnerName(tokenData.ownerName || 'your partner');
+      setViewerMode(true);
+    } catch (err) {
+      console.error('Share token claim failed:', err);
+      alert('Could not access the shared link. Please try again.');
+    }
   };
 
-  const handleSetCashBalance = (amount: number) => {
+  // Trigger claim after login (or immediately if already logged in)
+  useEffect(() => {
+    if (!loading && user && pendingShareToken && !isDemoMode) {
+      handleClaimShareToken(pendingShareToken, user);
+    }
+  }, [loading, user]);
+
+  const handleSetWalletBalance = async (amount: number) => {
+    setWalletBalanceState(amount);
+    localStorage.setItem('etc_wallet_balance', String(amount));
+    if (user && !isDemoMode) {
+      try {
+        await setDoc(doc(db, 'userBalances', user.uid), { walletBalance: amount }, { merge: true });
+      } catch (err) { /* non-critical */ }
+    }
+  };
+
+  const handleSetCashBalance = async (amount: number) => {
     setCashBalanceState(amount);
     localStorage.setItem('etc_cash_balance', String(amount));
+    if (user && !isDemoMode) {
+      try {
+        await setDoc(doc(db, 'userBalances', user.uid), { cashBalance: amount }, { merge: true });
+      } catch (err) { /* non-critical */ }
+    }
   };
 
   // --- BUSINESS LOGIC CRUD WRAPPERS ---
@@ -532,6 +609,49 @@ export default function App() {
     }
   };
 
+  const handleAddSettlement = async (debtId: string, slotAmount: number, slotNotes: string, slotDate: string) => {
+    const currentUserId = user ? user.uid : 'local-demo-user';
+    const target = debts.find(d => d.id === debtId);
+    if (!target) return;
+
+    const newSlot = {
+      amount: slotAmount,
+      date: slotDate,
+      ...(slotNotes ? { notes: slotNotes } : {}),
+      createdAt: new Date().toISOString(),
+    };
+
+    const existingSlots = target.settlements || [];
+    const updatedSlots = [...existingSlots, newSlot];
+    const totalPaid = updatedSlots.reduce((s, sl) => s + sl.amount, 0);
+    const isFullyPaid = totalPaid >= target.amount;
+    const resolvedAt = isFullyPaid ? new Date().toISOString() : undefined;
+
+    if (isDemoMode) {
+      const revised = debts.map(d => {
+        if (d.id !== debtId) return d;
+        return {
+          ...d,
+          settlements: updatedSlots,
+          ...(isFullyPaid ? { status: 'resolved' as const, resolvedAt } : {}),
+        };
+      });
+      setDebts(revised);
+      saveLocalData(`etc_debts_${currentUserId}`, revised);
+    } else {
+      try {
+        const updateData: Record<string, any> = { settlements: arrayUnion(newSlot) };
+        if (isFullyPaid) {
+          updateData.status = 'resolved';
+          updateData.resolvedAt = resolvedAt;
+        }
+        await updateDoc(doc(db, 'debts', debtId), updateData);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, `debts/${debtId}`);
+      }
+    }
+  };
+
   const handleDeleteDebt = async (id: string) => {
     const currentUserId = user ? user.uid : 'local-demo-user';
 
@@ -686,9 +806,16 @@ export default function App() {
           <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
             Spendly.
           </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 font-medium max-w-sm">
-            Budget smarter, track loans with friends in real-time, and monitor monthly financial reports.
-          </p>
+          {pendingShareToken ? (
+            <div className="mt-3 px-4 py-3 bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200/50 dark:border-indigo-900/40 rounded-2xl text-center">
+              <p className="text-xs font-bold text-indigo-700 dark:text-indigo-300">You've been invited to view someone's finances</p>
+              <p className="text-[11px] text-indigo-500 dark:text-indigo-400 mt-1">Sign in with Google below to access the shared view.</p>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 font-medium max-w-sm">
+              Budget smarter, track loans with friends in real-time, and monitor monthly financial reports.
+            </p>
+          )}
 
           <div className="w-full space-y-3.5 my-8 text-left border-y border-white/40 dark:border-slate-800/40 py-6" id="features-highlights">
             <div className="flex items-start gap-3.5">
@@ -769,6 +896,25 @@ export default function App() {
       </div>
 
       <div className="relative z-10 flex-grow flex flex-col w-full">
+        {/* SHARE MODAL */}
+        {showShareModal && user && (
+          <ShareModal
+            userId={user.uid}
+            userName={user.displayName || user.email || 'User'}
+            onClose={() => setShowShareModal(false)}
+          />
+        )}
+
+        {/* READ-ONLY VIEWER BANNER */}
+        {viewerMode && (
+          <div className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-[11px] font-bold py-2 px-4 shadow-sm flex items-center justify-between z-50">
+            <div className="flex items-center gap-2 mx-auto">
+              <Eye size={12} className="opacity-80" />
+              <span>Viewing <strong>{viewingOwnerName}</strong>'s finances — Read-Only mode</span>
+            </div>
+          </div>
+        )}
+
         {/* GLOBAL SANDBOX / PROVISIONED STATUS CHIP */}
         {isPlaceholderConfig && (
           <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white text-[11px] font-bold py-2 px-4 shadow-sm flex items-center justify-between z-50 overflow-hidden relative">
@@ -802,7 +948,19 @@ export default function App() {
 
           <div className="flex items-center gap-4">
             <ThemeToggle isDarkMode={isDarkMode} onToggle={toggleTheme} />
-            
+
+            {/* Share button — only for owners, not viewers */}
+            {user && !isDemoMode && !viewerMode && !isPlaceholderConfig && (
+              <button
+                type="button"
+                onClick={() => setShowShareModal(true)}
+                title="Share my finances"
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50/60 hover:bg-indigo-100/60 dark:bg-indigo-950/30 dark:hover:bg-indigo-950/50 border border-indigo-200/60 dark:border-indigo-900/40 rounded-xl transition uppercase tracking-wider"
+              >
+                <Link2 size={13} />Share
+              </button>
+            )}
+
             {user ? (
               <button
                 onClick={handleSignOut}
@@ -833,6 +991,7 @@ export default function App() {
 
           {/* TABS SELECT NAVIGATION BAR — desktop only */}
           <div className="hidden md:flex items-center gap-1.5 glass-panel p-1.5 rounded-3xl shadow-[0_15px_35px_rgba(0,0,0,0.03)] mb-8 overflow-x-auto scroller-none" id="dashboard-navbar">
+
             <button
               onClick={() => setActiveTab('dashboard')}
               id="nav-tab-dashboard"
@@ -847,61 +1006,58 @@ export default function App() {
               Overview Dashboard
             </button>
             
-            <button
-              onClick={() => setActiveTab('ledger')}
-              id="nav-tab-ledger"
-              type="button"
-              className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
-                activeTab === 'ledger'
-                  ? 'bg-indigo-600 dark:bg-indigo-500 text-white shadow-xl shadow-indigo-500/10'
-                  : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-white/40 dark:hover:bg-slate-900/30'
-              }`}
-            >
-              <ReceiptText size={14} />
-              Book Ledger Log
-            </button>
-
-            <button
-              onClick={() => setActiveTab('debts')}
-              id="nav-tab-debts"
-              type="button"
-              className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
-                activeTab === 'debts'
-                  ? 'bg-indigo-600 dark:bg-indigo-500 text-white shadow-xl shadow-indigo-500/10'
-                  : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-white/40 dark:hover:bg-slate-900/30'
-              }`}
-            >
-              <ArrowRightLeft size={14} />
-              Borrow & Debt Register
-            </button>
-
-            <button
-              onClick={() => setActiveTab('categories')}
-              id="nav-tab-categories"
-              type="button"
-              className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
-                activeTab === 'categories'
-                  ? 'bg-indigo-600 dark:bg-indigo-500 text-white shadow-xl shadow-indigo-500/10'
-                  : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-white/40 dark:hover:bg-slate-900/30'
-              }`}
-            >
-              <FolderKanban size={14} />
-              Manage Categories
-            </button>
-
-            <button
-              onClick={() => setActiveTab('investments')}
-              id="nav-tab-investments"
-              type="button"
-              className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
-                activeTab === 'investments'
-                  ? 'bg-indigo-600 dark:bg-indigo-500 text-white shadow-xl shadow-indigo-500/10'
-                  : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-white/40 dark:hover:bg-slate-900/30'
-              }`}
-            >
-              <TrendingUp size={14} />
-              Investments
-            </button>
+            {!viewerMode && (
+              <>
+                <button
+                  onClick={() => setActiveTab('ledger')}
+                  id="nav-tab-ledger"
+                  type="button"
+                  className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+                    activeTab === 'ledger'
+                      ? 'bg-indigo-600 dark:bg-indigo-500 text-white shadow-xl shadow-indigo-500/10'
+                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-white/40 dark:hover:bg-slate-900/30'
+                  }`}
+                >
+                  <ReceiptText size={14} />Book Ledger Log
+                </button>
+                <button
+                  onClick={() => setActiveTab('debts')}
+                  id="nav-tab-debts"
+                  type="button"
+                  className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+                    activeTab === 'debts'
+                      ? 'bg-indigo-600 dark:bg-indigo-500 text-white shadow-xl shadow-indigo-500/10'
+                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-white/40 dark:hover:bg-slate-900/30'
+                  }`}
+                >
+                  <ArrowRightLeft size={14} />Borrow & Debt Register
+                </button>
+                <button
+                  onClick={() => setActiveTab('categories')}
+                  id="nav-tab-categories"
+                  type="button"
+                  className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+                    activeTab === 'categories'
+                      ? 'bg-indigo-600 dark:bg-indigo-500 text-white shadow-xl shadow-indigo-500/10'
+                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-white/40 dark:hover:bg-slate-900/30'
+                  }`}
+                >
+                  <FolderKanban size={14} />Manage Categories
+                </button>
+                <button
+                  onClick={() => setActiveTab('investments')}
+                  id="nav-tab-investments"
+                  type="button"
+                  className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+                    activeTab === 'investments'
+                      ? 'bg-indigo-600 dark:bg-indigo-500 text-white shadow-xl shadow-indigo-500/10'
+                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-white/40 dark:hover:bg-slate-900/30'
+                  }`}
+                >
+                  <TrendingUp size={14} />Investments
+                </button>
+              </>
+            )}
 
             <button
               onClick={() => setActiveTab('monthly')}
@@ -927,9 +1083,9 @@ export default function App() {
               categories={categories}
               isDarkMode={isDarkMode}
               walletBalance={walletBalance}
-              onSetWalletBalance={handleSetWalletBalance}
+              onSetWalletBalance={viewerMode ? () => {} : handleSetWalletBalance}
               cashBalance={cashBalance}
-              onSetCashBalance={handleSetCashBalance}
+              onSetCashBalance={viewerMode ? () => {} : handleSetCashBalance}
               compact={activeTab !== 'dashboard'}
               selectedPeriod={selectedPeriod}
               onPeriodChange={setSelectedPeriod}
@@ -1018,11 +1174,12 @@ export default function App() {
             )}
 
             {activeTab === 'debts' && (
-              <DebtTracker 
-                debts={debts} 
-                onCreateDebt={handleCreateDebt} 
-                onResolveDebt={handleResolveDebt} 
-                onDeleteDebt={handleDeleteDebt} 
+              <DebtTracker
+                debts={debts}
+                onCreateDebt={handleCreateDebt}
+                onResolveDebt={handleResolveDebt}
+                onAddSettlement={handleAddSettlement}
+                onDeleteDebt={handleDeleteDebt}
               />
             )}
 
@@ -1060,13 +1217,18 @@ export default function App() {
 
         {/* MOBILE BOTTOM NAV BAR — floating pill with sliding indicator */}
         {(() => {
-          const bottomTabs: { tab: ActiveTab; icon: any; label: string }[] = [
-            { tab: 'dashboard',   icon: LayoutDashboard, label: 'Home'    },
-            { tab: 'ledger',      icon: ReceiptText,      label: 'Ledger'  },
-            { tab: 'debts',       icon: ArrowRightLeft,   label: 'Debts'   },
-            { tab: 'investments', icon: TrendingUp,       label: 'Invest'  },
-            { tab: 'monthly',     icon: FileText,         label: 'Report'  },
-          ];
+          const bottomTabs: { tab: ActiveTab; icon: any; label: string }[] = viewerMode
+            ? [
+                { tab: 'dashboard', icon: LayoutDashboard, label: 'Home'   },
+                { tab: 'monthly',   icon: FileText,         label: 'Report' },
+              ]
+            : [
+                { tab: 'dashboard',   icon: LayoutDashboard, label: 'Home'    },
+                { tab: 'ledger',      icon: ReceiptText,      label: 'Ledger'  },
+                { tab: 'debts',       icon: ArrowRightLeft,   label: 'Debts'   },
+                { tab: 'investments', icon: TrendingUp,       label: 'Invest'  },
+                { tab: 'monthly',     icon: FileText,         label: 'Report'  },
+              ];
           const activeIndex = bottomTabs.findIndex(t => t.tab === activeTab);
           return (
             <nav

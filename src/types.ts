@@ -22,6 +22,13 @@ export interface Transaction {
   createdAt: string; // string timestamp
 }
 
+export interface DebtSettlement {
+  amount: number;
+  date: string; // YYYY-MM-DD
+  notes?: string;
+  createdAt: string; // ISO timestamp — unique per slot
+}
+
 export interface Debt {
   id: string;
   userId: string;
@@ -33,6 +40,7 @@ export interface Debt {
   status: 'pending' | 'resolved';
   createdAt: string; // string timestamp
   resolvedAt?: string; // set when debt is settled — used for month-based reporting
+  settlements?: DebtSettlement[]; // partial payment slots
 }
 
 export type Period = { type: 'month'; year: number; month: number } | { type: 'all' };
