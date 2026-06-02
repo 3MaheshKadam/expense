@@ -32,9 +32,9 @@ export default function ShareModal({ userId, userName, onClose }: ShareModalProp
   const [generating, setGenerating] = useState(false);
   const [revoking, setRevoking] = useState(false);
 
-  const shareUrl = token
-    ? `${window.location.origin}${window.location.pathname}?share=${token.id}`
-    : '';
+  const baseUrl = (import.meta.env.VITE_APP_URL as string | undefined)?.replace(/\/$/, '')
+    ?? window.location.origin;
+  const shareUrl = token ? `${baseUrl}?share=${token.id}` : '';
 
   useEffect(() => {
     loadState();
