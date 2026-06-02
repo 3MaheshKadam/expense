@@ -298,15 +298,19 @@ export default function MonthlySummary({ categories, transactions, debts }: Mont
       if (debtsCreatedThisMonth.length > 0) {
         autoTable(doc, {
           startY: dY + 10,
-          head: [['Person', 'Direction', 'Amount', 'Notes', 'Due Date', 'Status']],
-          body: debtsCreatedThisMonth.map(d => [
-            d.personName,
-            d.type === 'to_give' ? 'I Owe Them' : 'They Owe Me',
-            fmtPdf(d.amount),
-            d.notes || '—',
-            d.dueDate || '—',
-            d.status === 'resolved' ? 'Settled' : 'Pending',
-          ]),
+          head: [['Person', 'Direction', 'Remaining', 'Total', 'Due Date', 'Status']],
+          body: debtsCreatedThisMonth.map(d => {
+            const paid = (d.settlements || []).reduce((s, sl) => s + sl.amount, 0);
+            const remaining = d.status === 'resolved' ? 0 : Math.max(0, d.amount - paid);
+            return [
+              d.personName,
+              d.type === 'to_give' ? 'I Owe Them' : 'They Owe Me',
+              d.status === 'resolved' ? 'Settled' : fmtPdf(remaining),
+              fmtPdf(d.amount),
+              d.dueDate || '—',
+              d.status === 'resolved' ? 'Settled' : (paid > 0 ? `Partial (${fmtPdf(paid)} paid)` : 'Pending'),
+            ];
+          }),
           margin: { left: margin, right: margin },
           styles: { fontSize: 8, cellPadding: 3, font: 'helvetica', textColor: [40, 40, 60] },
           headStyles: { fillColor: [245, 158, 11], textColor: 255, fontStyle: 'bold', fontSize: 8 },
@@ -359,15 +363,19 @@ export default function MonthlySummary({ categories, transactions, debts }: Mont
         doc.text('Still Outstanding (Carry-Over)', margin, afterSettled + 8);
         autoTable(doc, {
           startY: afterSettled + 11,
-          head: [['Person', 'Direction', 'Amount', 'Notes', 'Borrowed On', 'Due Date']],
-          body: pendingDebts.map(d => [
-            d.personName,
-            d.type === 'to_give' ? 'I Owe Them' : 'They Owe Me',
-            fmtPdf(d.amount),
-            d.notes || '—',
-            new Date(d.createdAt).toLocaleDateString('en-IN'),
-            d.dueDate || 'No due date',
-          ]),
+          head: [['Person', 'Direction', 'Remaining', 'Paid', 'Total', 'Due Date']],
+          body: pendingDebts.map(d => {
+            const paid = (d.settlements || []).reduce((s, sl) => s + sl.amount, 0);
+            const remaining = Math.max(0, d.amount - paid);
+            return [
+              d.personName,
+              d.type === 'to_give' ? 'I Owe Them' : 'They Owe Me',
+              fmtPdf(remaining),
+              paid > 0 ? fmtPdf(paid) : '—',
+              fmtPdf(d.amount),
+              d.dueDate || 'No due date',
+            ];
+          }),
           margin: { left: margin, right: margin },
           styles: { fontSize: 8, cellPadding: 3, font: 'helvetica', textColor: [40, 40, 60] },
           headStyles: { fillColor: [244, 63, 94], textColor: 255, fontStyle: 'bold', fontSize: 8 },
@@ -613,7 +621,10 @@ export default function MonthlySummary({ categories, transactions, debts }: Mont
                   Borrowed / Lent in {MONTH_NAMES[selectedMonth]}
                 </p>
                 <div className="space-y-2">
-                  {debtsCreatedThisMonth.map(d => (
+                  {debtsCreatedThisMonth.map(d => {
+                    const paid = (d.settlements || []).reduce((s, sl) => s + sl.amount, 0);
+                    const remaining = Math.max(0, d.amount - paid);
+                    return (
                     <div key={d.id} className="flex items-center gap-4 p-4 bg-white/30 dark:bg-slate-900/20 rounded-2xl border border-white/50 dark:border-slate-800/40">
                       <div className={`p-2 rounded-xl flex-shrink-0 ${d.type === 'to_give' ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'}`}>
                         <HandCoins size={15} />
@@ -625,17 +636,26 @@ export default function MonthlySummary({ categories, transactions, debts }: Mont
                           {d.notes ? ` · ${d.notes}` : ''}
                           {d.dueDate ? ` · due ${d.dueDate}` : ''}
                         </p>
+                        {paid > 0 && d.status !== 'resolved' && (
+                          <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold mt-0.5">
+                            Paid {fmt(paid)} of {fmt(d.amount)}
+                          </p>
+                        )}
                       </div>
                       <div className="text-right flex-shrink-0">
                         <p className={`text-sm font-black ${d.type === 'to_give' ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                          {d.type === 'to_give' ? '-' : '+'}{fmt(d.amount)}
+                          {d.status === 'resolved' ? fmt(d.amount) : `${d.type === 'to_give' ? '-' : '+'}${fmt(remaining)}`}
                         </p>
+                        {paid > 0 && d.status !== 'resolved' && (
+                          <p className="text-[10px] text-slate-400 line-through">{fmt(d.amount)}</p>
+                        )}
                         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${d.status === 'resolved' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'}`}>
-                          {d.status === 'resolved' ? 'Settled' : 'Pending'}
+                          {d.status === 'resolved' ? 'Settled' : (paid > 0 ? 'Partial' : 'Pending')}
                         </span>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -676,7 +696,10 @@ export default function MonthlySummary({ categories, transactions, debts }: Mont
                   <Clock size={12} /> Still Outstanding (Carry-Over)
                 </p>
                 <div className="space-y-2">
-                  {pendingDebts.map(d => (
+                  {pendingDebts.map(d => {
+                    const paid = (d.settlements || []).reduce((s, sl) => s + sl.amount, 0);
+                    const remaining = Math.max(0, d.amount - paid);
+                    return (
                     <div key={d.id} className="flex items-center gap-4 p-4 bg-rose-50/40 dark:bg-rose-900/10 rounded-2xl border border-rose-200/40 dark:border-rose-800/30">
                       <div className={`p-2 rounded-xl flex-shrink-0 ${d.type === 'to_give' ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'}`}>
                         <Clock size={15} />
@@ -689,12 +712,23 @@ export default function MonthlySummary({ categories, transactions, debts }: Mont
                           {d.dueDate ? ` · due ${d.dueDate}` : ''}
                           {` · since ${new Date(d.createdAt).toLocaleDateString('en-IN')}`}
                         </p>
+                        {paid > 0 && (
+                          <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold mt-0.5">
+                            Paid {fmt(paid)} of {fmt(d.amount)}
+                          </p>
+                        )}
                       </div>
-                      <p className={`text-sm font-black flex-shrink-0 ${d.type === 'to_give' ? 'text-rose-600 dark:text-rose-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                        {fmt(d.amount)}
-                      </p>
+                      <div className="text-right flex-shrink-0">
+                        <p className={`text-sm font-black ${d.type === 'to_give' ? 'text-rose-600 dark:text-rose-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                          {fmt(remaining)}
+                        </p>
+                        {paid > 0 && (
+                          <p className="text-[10px] text-slate-400 line-through">{fmt(d.amount)}</p>
+                        )}
+                      </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
