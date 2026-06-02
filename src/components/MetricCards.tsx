@@ -72,32 +72,25 @@ export default function MetricCards({ transactions, periodTransactions, debts, c
     ? 'All Time'
     : `${MONTH_NAMES[selectedPeriod.month - 1]} ${selectedPeriod.year}`;
 
-  // All-time stats → Card 1 (Available Balance) & Card 4 (Debts)
+  // Card 1: Available Balance = exactly what the user says they have (wallet + cash)
+  // Transactions are for analytics only — not layered onto the balance
   const allTimeStats = useMemo(() => {
-    const savingsCatIds = new Set(categories.filter(c => c.type === 'savings').map(c => c.id));
-    let income = 0, expense = 0, savings = 0, cashIncome = 0, cashExpense = 0;
-    transactions.forEach(t => {
-      const isCash = (t.paymentMethod ?? 'online') === 'cash';
-      if (t.type === 'incoming') {
-        income += t.amount;
-        isCash ? (cashIncome += t.amount) : 0;
-      } else if (savingsCatIds.has(t.categoryId)) {
-        savings += t.amount;
-        isCash ? (cashExpense += t.amount) : 0;
-      } else {
-        expense += t.amount;
-        isCash ? (cashExpense += t.amount) : 0;
-      }
-    });
-    const pendingToGive = debts.filter(d => d.status === 'pending' && d.type === 'to_give').reduce((s, d) => s + d.amount, 0);
-    const pendingToReceive = debts.filter(d => d.status === 'pending' && d.type === 'to_receive').reduce((s, d) => s + d.amount, 0);
-    const cashInHand = cashBalance + cashIncome - cashExpense;
-    const onlineIncome = income - cashIncome;
-    const onlineOutgoing = (expense + savings) - cashExpense;
-    const availableBalance = walletBalance + onlineIncome - onlineOutgoing;
+    const pendingToGive = debts
+      .filter(d => d.status === 'pending' && d.type === 'to_give')
+      .reduce((s, d) => {
+        const paid = (d.settlements || []).reduce((p, sl) => p + sl.amount, 0);
+        return s + Math.max(0, d.amount - paid);
+      }, 0);
+    const pendingToReceive = debts
+      .filter(d => d.status === 'pending' && d.type === 'to_receive')
+      .reduce((s, d) => {
+        const paid = (d.settlements || []).reduce((p, sl) => p + sl.amount, 0);
+        return s + Math.max(0, d.amount - paid);
+      }, 0);
+    const availableBalance = walletBalance;
     const projectedBalance = availableBalance + pendingToReceive - pendingToGive;
-    return { availableBalance, projectedBalance, cashInHand, pendingToGive, pendingToReceive };
-  }, [transactions, debts, categories, walletBalance, cashBalance]);
+    return { availableBalance, projectedBalance, pendingToGive, pendingToReceive };
+  }, [debts, walletBalance, cashBalance]);
 
   // Period stats → Card 2 (Inflow) & Card 3 (Expenses/Savings)
   const periodStats = useMemo(() => {
@@ -372,14 +365,10 @@ export default function MetricCards({ transactions, periodTransactions, debts, c
                 title="Click to set your cash in hand"
               >
                 <Banknote size={13} />
-                <span>Cash: {hidden ? '••••' : `₹${fmt(allTimeStats.cashInHand)}`}</span>
+                <span>Cash: {hidden ? '••••' : `₹${fmt(cashBalance)}`}</span>
                 {!hidden && <Pencil size={9} className="opacity-50 group-hover:opacity-100" />}
               </button>
-              <span className="text-slate-300 dark:text-slate-700 text-xs">|</span>
-              <span className="flex items-center gap-1.5 text-[11px] font-semibold text-indigo-500 dark:text-indigo-400">
-                <CreditCard size={13} />
-                Online: {hidden ? '••••' : `₹${fmt(allTimeStats.availableBalance)}`}
-              </span>
+              <span className="text-[10px] text-slate-400 dark:text-slate-500 italic">Cash is tracked separately</span>
             </div>
 
             {hasPendingDebts && (

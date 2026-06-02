@@ -439,6 +439,21 @@ export default function App() {
     }
   };
 
+  // Balance adjustment helper — call after any transaction create/edit/delete
+  const adjustBalance = async (
+    method: 'cash' | 'online',
+    type: 'incoming' | 'outgoing',
+    amount: number,
+    direction: 1 | -1   // 1 = apply transaction, -1 = reverse it
+  ) => {
+    const delta = (type === 'incoming' ? amount : -amount) * direction;
+    if (method === 'cash') {
+      await handleSetCashBalance(cashBalance + delta);
+    } else {
+      await handleSetWalletBalance(walletBalance + delta);
+    }
+  };
+
   // Transaction CRUD
   const handleCreateTransaction = async (
     amount: number,
@@ -477,10 +492,14 @@ export default function App() {
         handleFirestoreError(err, OperationType.CREATE, `transactions/${id}`);
       }
     }
+
+    // Auto-adjust wallet or cash balance
+    await adjustBalance(paymentMethod, type, amount, 1);
   };
 
   const handleDeleteTransaction = async (id: string) => {
     const currentUserId = user ? user.uid : 'local-demo-user';
+    const tx = transactions.find(t => t.id === id);
 
     if (isDemoMode) {
       const revised = transactions.filter(t => t.id !== id);
@@ -492,6 +511,11 @@ export default function App() {
       } catch (err) {
         handleFirestoreError(err, OperationType.DELETE, `transactions/${id}`);
       }
+    }
+
+    // Reverse the balance effect of the deleted transaction
+    if (tx) {
+      await adjustBalance(tx.paymentMethod ?? 'online', tx.type, tx.amount, -1);
     }
   };
 
@@ -534,6 +558,19 @@ export default function App() {
         handleFirestoreError(err, OperationType.UPDATE, `transactions/${id}`);
       }
     }
+
+    // Reverse old transaction's effect, then apply new one
+    const oldMethod = existing.paymentMethod ?? 'online';
+    const oldDelta = (existing.type === 'incoming' ? existing.amount : -existing.amount) * -1;
+    const newDelta = (type === 'incoming' ? amount : -amount) * 1;
+
+    // Compute net change per bucket and apply once
+    let walletDelta = 0, cashDelta = 0;
+    if (oldMethod === 'cash') cashDelta += oldDelta; else walletDelta += oldDelta;
+    if (paymentMethod === 'cash') cashDelta += newDelta; else walletDelta += newDelta;
+
+    if (walletDelta !== 0) await handleSetWalletBalance(walletBalance + walletDelta);
+    if (cashDelta !== 0) await handleSetCashBalance(cashBalance + cashDelta);
   };
 
   // Debts and Lending CRUD
