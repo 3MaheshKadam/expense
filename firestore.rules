@@ -2,181 +2,69 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Global Safety Net (Pillar 8 default-deny catch-all)
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Common cryptographic and authorization primitives (Pillar 3)
     function isSignedIn() {
       return request.auth != null;
     }
 
-    // Returns true if the current user has a viewer grant for the given owner
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
     function isGrantedViewer(ownerId) {
       return isSignedIn() &&
         exists(/databases/$(database)/documents/viewerGrants/$(ownerId)/viewers/$(request.auth.uid));
     }
 
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    // Schema and boundary controls (Pillar 2 & 5)
-    function isValidCategory(data) {
-      return data.id is string && data.id.size() <= 128
-        && data.name is string && data.name.size() > 0 && data.name.size() <= 50
-        && data.type is string && (data.type == 'expense' || data.type == 'income' || data.type == 'savings' || data.type == 'friend')
-        && (data.icon == null || (data.icon is string && data.icon.size() <= 100))
-        && (data.color == null || (data.color is string && data.color.size() <= 50))
-        && data.userId == request.auth.uid;
-    }
-
-    function isValidTransaction(data) {
-      return data.id is string && data.id.size() <= 128
-        && data.userId == request.auth.uid
-        && data.amount is number && data.amount >= 0
-        && data.type is string && (data.type == 'incoming' || data.type == 'outgoing')
-        && data.categoryId is string && data.categoryId.size() <= 128
-        && (data.notes == null || (data.notes is string && data.notes.size() <= 500))
-        && data.date is string && data.date.size() <= 50
-        && (data.friendName == null || (data.friendName is string && data.friendName.size() <= 100))
-        && (data.paymentMethod == null || data.paymentMethod == 'cash' || data.paymentMethod == 'online');
-    }
-
-    function isValidDebt(data) {
-      return data.id is string && data.id.size() <= 128
-        && data.userId == request.auth.uid
-        && data.type is string && (data.type == 'to_give' || data.type == 'to_receive')
-        && data.personName is string && data.personName.size() > 0 && data.personName.size() <= 100
-        && data.amount is number && data.amount >= 0
-        && (data.notes == null || (data.notes is string && data.notes.size() <= 500))
-        && (data.dueDate == null || (data.dueDate is string && data.dueDate.size() <= 50))
-        && data.status is string && (data.status == 'pending' || data.status == 'resolved')
-        && (!('resolvedAt' in data) || (data.resolvedAt is string && data.resolvedAt.size() <= 50))
-        && (!('settlements' in data) || data.settlements is list);
-    }
-
-    // Collection Security (Pillar 6, 8, & 12)
     match /categories/{categoryId} {
-      allow create: if isSignedIn()
-        && isValidId(categoryId)
-        && request.resource.data.id == categoryId
-        && isValidCategory(request.resource.data);
-
-      allow update: if isSignedIn()
-        && isValidId(categoryId)
-        && isValidCategory(request.resource.data)
-        && request.resource.data.userId == resource.data.userId
-        && request.resource.data.id == resource.data.id
-        && (
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'icon', 'color'])
-        );
-
-      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
-
-      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isGrantedViewer(resource.data.userId));
-      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isGrantedViewer(resource.data.userId));
+      allow create: if isOwner(request.resource.data.userId);
+      allow update: if isOwner(resource.data.userId);
+      allow delete: if isOwner(resource.data.userId);
+      allow get:    if isSignedIn() && (resource.data.userId == request.auth.uid || isGrantedViewer(resource.data.userId));
+      allow list:   if isSignedIn() && (resource.data.userId == request.auth.uid || isGrantedViewer(resource.data.userId));
     }
 
     match /transactions/{transactionId} {
-      allow create: if isSignedIn()
-        && isValidId(transactionId)
-        && request.resource.data.id == transactionId
-        && isValidTransaction(request.resource.data)
-        && request.resource.data.createdAt == request.time; // Temporal Integrity (Pillar 13)
-
-      allow update: if isSignedIn()
-        && isValidId(transactionId)
-        && isValidTransaction(request.resource.data)
-        && request.resource.data.userId == resource.data.userId
-        && request.resource.data.id == resource.data.id
-        && request.resource.data.createdAt == resource.data.createdAt // Original timestamp is immortal
-        && (
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['amount', 'type', 'categoryId', 'notes', 'date', 'friendName', 'paymentMethod'])
-        );
-
-      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
-
-      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isGrantedViewer(resource.data.userId));
-      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isGrantedViewer(resource.data.userId));
-    }
-
-    function isValidInvestment(data) {
-      return data.id is string && data.id.size() <= 128
-        && data.userId == request.auth.uid
-        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
-        && data.principal is number && data.principal >= 0
-        && data.expectedReturn is number && data.expectedReturn >= 0
-        && data.startDate is string && data.startDate.size() <= 50
-        && data.maturityDate is string && data.maturityDate.size() <= 50
-        && data.status is string && (data.status == 'active' || data.status == 'confirmed')
-        && (data.notes == null || (data.notes is string && data.notes.size() <= 500))
-        && (data.confirmedAt == null || (data.confirmedAt is string && data.confirmedAt.size() <= 50));
+      allow create: if isOwner(request.resource.data.userId);
+      allow update: if isOwner(resource.data.userId);
+      allow delete: if isOwner(resource.data.userId);
+      allow get:    if isSignedIn() && (resource.data.userId == request.auth.uid || isGrantedViewer(resource.data.userId));
+      allow list:   if isSignedIn() && (resource.data.userId == request.auth.uid || isGrantedViewer(resource.data.userId));
     }
 
     match /investments/{investmentId} {
-      allow create: if isSignedIn()
-        && isValidId(investmentId)
-        && request.resource.data.id == investmentId
-        && isValidInvestment(request.resource.data)
-        && request.resource.data.createdAt == request.time;
-
-      allow update: if isSignedIn()
-        && isValidId(investmentId)
-        && isValidInvestment(request.resource.data)
-        && request.resource.data.userId == resource.data.userId
-        && request.resource.data.id == resource.data.id
-        && request.resource.data.createdAt == resource.data.createdAt
-        && (
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'confirmedAt'])
-        );
-
-      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isGrantedViewer(resource.data.userId));
-      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isGrantedViewer(resource.data.userId));
+      allow create: if isOwner(request.resource.data.userId);
+      allow update: if isOwner(resource.data.userId);
+      allow delete: if isOwner(resource.data.userId);
+      allow get:    if isSignedIn() && (resource.data.userId == request.auth.uid || isGrantedViewer(resource.data.userId));
+      allow list:   if isSignedIn() && (resource.data.userId == request.auth.uid || isGrantedViewer(resource.data.userId));
     }
 
     match /debts/{debtId} {
-      allow create: if isSignedIn()
-        && isValidId(debtId)
-        && request.resource.data.id == debtId
-        && isValidDebt(request.resource.data)
-        && request.resource.data.createdAt == request.time; // Temporal Integrity
-
-      allow update: if isSignedIn()
-        && isValidId(debtId)
-        && isValidDebt(request.resource.data)
-        && request.resource.data.userId == resource.data.userId
-        && request.resource.data.id == resource.data.id
-        && request.resource.data.createdAt == resource.data.createdAt // Original timestamp is immortal
-        && (
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['amount', 'status', 'notes', 'dueDate', 'personName', 'resolvedAt', 'settlements'])
-        );
-
-      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
-
-      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isGrantedViewer(resource.data.userId));
-      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isGrantedViewer(resource.data.userId));
+      allow create: if isOwner(request.resource.data.userId);
+      allow update: if isOwner(resource.data.userId);
+      allow delete: if isOwner(resource.data.userId);
+      allow get:    if isSignedIn() && (resource.data.userId == request.auth.uid || isGrantedViewer(resource.data.userId));
+      allow list:   if isSignedIn() && (resource.data.userId == request.auth.uid || isGrantedViewer(resource.data.userId));
     }
 
-    // Wallet & cash balances per user — readable by viewers
     match /userBalances/{userId} {
-      allow read: if isSignedIn() && (request.auth.uid == userId || isGrantedViewer(userId));
-      allow write: if isSignedIn() && request.auth.uid == userId;
+      allow read:  if isSignedIn() && (request.auth.uid == userId || isGrantedViewer(userId));
+      allow write: if isOwner(userId);
     }
 
-    // Share tokens — publicly readable (the UUID is the secret)
     match /shareTokens/{tokenId} {
-      allow read: if true;
+      allow read:   if true;
       allow create: if isSignedIn() && request.resource.data.ownerId == request.auth.uid;
       allow delete: if isSignedIn() && resource.data.ownerId == request.auth.uid;
       allow update: if false;
     }
 
-    // Viewer grants — subcollection /viewerGrants/{ownerId}/viewers/{viewerId}
     match /viewerGrants/{ownerId}/viewers/{viewerId} {
-      allow read: if isSignedIn() && (request.auth.uid == ownerId || request.auth.uid == viewerId);
+      allow read:   if isSignedIn() && (request.auth.uid == ownerId || request.auth.uid == viewerId);
       allow create: if isSignedIn()
         && request.auth.uid == viewerId
         && request.resource.data.viewerId == viewerId
