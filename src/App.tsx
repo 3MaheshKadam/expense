@@ -223,7 +223,7 @@ export default function App() {
         } else {
           // Back-fill savings categories for existing users who have none
           const hasSavings = items.some(c => c.type === 'savings');
-          if (!hasSavings) {
+          if (!hasSavings && !viewingUserId) {
             const savingsDefaults = INITIAL_CATEGORIES(currentUserId).filter(c => c.type === 'savings');
             savingsDefaults.forEach(async (c) => {
               try {
